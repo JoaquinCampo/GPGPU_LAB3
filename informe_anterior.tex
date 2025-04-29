@@ -1,0 +1,406 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage[margin=2cm]{geometry}
+\usepackage{setspace}
+\usepackage{titlesec}
+\usepackage{lmodern}  % Latin Modern fonts
+\usepackage{fancyhdr} % For headers and footers
+
+% Configuración de fuentes
+\renewcommand{\familydefault}{\rmdefault}
+\renewcommand{\ttdefault}{lmtt}
+\renewcommand{\sfdefault}{lmss}
+
+% Configuración de encabezados y pies de página
+\pagestyle{fancy}
+\fancyhf{} % Clear all header and footer fields
+\renewcommand{\headrulewidth}{0pt} % Remove header rule
+\renewcommand{\footrulewidth}{0.4pt} % Add footer rule
+\fancyfoot[C]{\small Nota: Los programas fueron compilados con la flag \texttt{-O3} \href{https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html}{[ref]}}
+\fancyfoot[R]{\thepage}
+
+% Configuración de listings para código
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    breaklines=true,
+    breakatwhitespace=true,
+    captionpos=b,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{green!60!black}\itshape,
+    stringstyle=\color{red},
+    showstringspaces=false,
+    xleftmargin=0.3cm,
+    xrightmargin=0.3cm,
+    tabsize=4,
+    keepspaces=true,
+    showspaces=false,
+    showtabs=false,
+    breakindent=0pt,
+    breakautoindent=true,
+    prebreak=\mbox{\textcolor{gray}{$\hookrightarrow$}\space},
+    postbreak=\mbox{\textcolor{gray}{$\hookleftarrow$}\space},
+    literate={\ \ }{{\ }}1,
+    morekeywords={size_t, std::min},
+    emph={[2][3]}{textstyle=\color{red}},
+    emphstyle={[2]\color{blue}\bfseries},
+    emphstyle={[3]\color{green!60!black}\itshape},
+    language=C++
+}
+
+% Definición de colores para C++
+\definecolor{codegray}{rgb}{0.95,0.95,0.95}
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{codeblue}{rgb}{0,0,0.6}
+\definecolor{codeorange}{rgb}{0.8,0.4,0}
+\definecolor{codered}{rgb}{0.6,0,0}
+
+% Estilo personalizado para C++
+\lstdefinestyle{cpp}{
+    backgroundcolor=\color{codegray},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{codeblue},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+
+% Configuración de espaciado
+\setstretch{1.1}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.3em}
+\setlength{\itemsep}{0.2em}
+\setlength{\parsep}{0.2em}
+\setlength{\topsep}{0.2em}
+\setlength{\partopsep}{0.2em}
+\setlength{\textfloatsep}{0.2em}
+\setlength{\floatsep}{0.2em}
+\setlength{\intextsep}{0.2em}
+\setlength{\abovecaptionskip}{0.2em}
+\setlength{\belowcaptionskip}{0.2em}
+\setlength{\abovedisplayskip}{0.3em}
+\setlength{\belowdisplayskip}{0.3em}
+
+% Configuración de títulos
+\titlespacing*{\section}{0pt}{0.5em}{0.3em}
+\titlespacing*{\subsection}{0pt}{0.4em}{0.2em}
+
+% Configuración de tablas
+\renewcommand{\arraystretch}{0.8}
+
+% Prevenir espacios desiguales entre páginas
+\raggedbottom
+
+% Configuración de títulos
+\titleformat{\section}
+    {\normalfont\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}
+    {\normalfont\large\bfseries}{\thesubsection}{1em}{}
+
+\begin{document}
+
+\title{\Large\textbf{Informe - Práctico 1: Patrones de acceso a memoria}}
+\author{
+    \begin{tabular}[t]{c c c}
+        \large\textbf{Joaquin Campo} & \large\textbf{Mateo Daneri} & \large\textbf{Santiago Rodriguez} \\[0.3em]
+        \small{5.280.080-4} & \small{5.660.750-1} & \small{5.221.151-4} \\[1em]
+    \end{tabular}
+}
+\date{}
+
+
+\maketitle
+
+\section{Ejercicio 1: Localidad espacial}
+El objetivo de este ejercicio es demostrar el impacto de la localidad espacial en el rendimiento de los programas. Para esto, se implementaron dos versiones de un programa que realizan la misma cantidad de operaciones sobre un arreglo de 100MB, pero con patrones de acceso diferentes:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Acceso Secuencial:} Lee los elementos en orden contiguo, aprovechando la localidad espacial
+    \item \textbf{Acceso Aleatorio:} Lee los elementos en orden aleatorio, no haciendo uso la localidad espacial
+\end{itemize}
+
+La diferencia en rendimiento entre ambas versiones permite cuantificar el impacto de la localidad espacial en el acceso a memoria, considerando la jerarquía de caché del sistema.
+
+\subsection{Implementación}
+    
+Se implementaron dos funciones para comparar el rendimiento entre acceso secuencial y aleatorio sobre un arreglo de 100MB:
+
+\begin{lstlisting}[style=cpp,language=C++]
+// Acceso secuencial
+char *arreglo_caracteres = (char *)malloc(TAMANO_ARREGLO);
+int *orden_acceso = (int *)malloc(TAMANO_ARREGLO * sizeof(int));
+
+for (int i = 0; i < TAMANO_ARREGLO; i++) {
+    orden_acceso[i] = i;  // Orden secuencial
+}
+
+clock_t inicio = clock();
+for (int i = 0; i < TAMANO_ARREGLO; i++) {
+    arreglo_caracteres[orden_acceso[i]] = arreglo_caracteres[orden_acceso[i]] + 1;
+}
+clock_t fin = clock();
+\end{lstlisting}
+Nota: Para el acceso aleatorio de la segunda parte, el orden_acceso es randomizado antes de la medición.
+
+\subsection{Análisis de Rendimiento}
+Las mediciones revelaron diferencias significativas en el rendimiento. Los resultados se dividen en dos conjuntos de pruebas:
+
+\subsubsection{Pruebas con arreglo de 100MB}
+\begin{table}[!h]
+\centering
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Métrica} & \textbf{Acceso Secuencial} & \textbf{Acceso Aleatorio} & \textbf{Mejora} \\
+\midrule
+Tiempo promedio & 0.0658466s & 1.87292s & 28.44x \\
+Tiempo mínimo & 0.062515s & 1.70672s & 27.30x \\
+Tiempo máximo & 0.073369s & 2.39091s & 32.58x \\
+\bottomrule
+\end{tabular}
+\caption{Resultados de rendimiento con arreglo de 100MB (promedio de 10 ejecuciones)}
+\label{tab:results_100mb}
+\end{table}
+
+\vspace{1cm}
+
+\subsubsection{Pruebas específicas por nivel de caché}
+\begin{table}[!h]
+\centering
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Nivel de Caché} & \textbf{Secuencial (s)} & \textbf{Aleatorio (s)} & \textbf{Mejora} \\
+\midrule
+L1 (384 KB) & 0.0001991 & 0.0003939 & 1.98x \\
+L2 (10 MB) & 0.00565 & 0.0506967 & 8.97x \\
+L3 (24 MB) & 0.0120174 & 0.24891 & 20.71x \\
+\bottomrule
+\end{tabular}
+\label{tab:results_cache}
+\end{table}
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Acceso Secuencial:}
+    \begin{itemize}[noitemsep]
+        \item Aprovecha la línea de caché de 64 bytes, leyendo 64 elementos contiguos en cada acceso
+        \item Resulta en aproximadamente 1 fallo de caché cada 64 accesos (tamaño de línea)
+    \end{itemize}
+    
+    \item \textbf{Acceso Aleatorio:}
+    \begin{itemize}[noitemsep]
+        \item Cada acceso aleatorio tiene alta probabilidad de requerir una nueva línea de caché
+        \item Resulta en aproximadamente 1 fallo de caché por cada acceso
+    \end{itemize}
+    
+    \item \textbf{Impacto del Tamaño de Datos:}
+    \begin{itemize}[noitemsep]
+        \item L1 Cache (384 KB): acceso aleatorio 1.98x más lento que el secuencial
+        \item L2 Cache (10 MB): acceso aleatorio 8.97x más lento que el secuencial
+        \item L3 Cache (24 MB): acceso aleatorio 20.71x más lento que el secuencial
+        \item Memoria Principal (100 MB): acceso aleatorio 28.44x más lento que el secuencial
+    \end{itemize}
+\end{itemize}
+
+\subsection{Resultados}
+Tras ejecutar ambas versiones, se encontró que el acceso aleatorio es entre 8,4 y 10,7 veces más lento que el secuencial, con un promedio de 9,5 veces más lento. Esto demuestra claramente el impacto de la localidad espacial, donde:
+
+\begin{itemize}[noitemsep]
+    \item El acceso secuencial aprovecha la localidad espacial de la caché al leer bloques contiguos de memoria
+    \item El acceso aleatorio genera constantes fallos de caché al saltar a posiciones distantes, las cuales pertenecen a bloques distintos de memoria.
+\end{itemize}
+
+\section{Ejercicio 2: Localidad temporal}
+Para multiplicar dos matrices $A$ y $B$ de dimensiones $n \times n$, el resultado $C = A \times B$ se define como:
+
+\[ C[i][k] = \sum_{j=0}^{n-1} A[i][j] \times B[j][k] \]
+
+Este ejercicio extiende el concepto de multiplicación matriz-vector presentado en el enunciado, donde se propuso el hacer uso de bloques de datos para hacer uso de la localidad temporal al mantener elementos frecuentemente accedidos en caché, mejorando el rendimiento. En el caso de matrices, la optimización es aún más importante ya que cada elemento de $A$ se accede $n$ veces durante el cálculo, en vez de una única vez como en el caso de la multiplicación por un vector.
+
+\subsection{Implementación}
+
+\subsubsection{Multiplicación de matrices básica}
+La implementación básica sigue el algoritmo estándar de multiplicación de matrices:
+
+\begin{lstlisting}[style=cpp,language=C++]
+for (size_t i = 0; i < size; i++) {
+    for (size_t k = 0; k < size; k++) {
+        for (size_t j = 0; j < size; j++) {
+            C[i][k] += A[i][j] * B[j][k];
+        }
+    }
+}
+\end{lstlisting}
+
+Este algoritmo presenta las siguientes características de acceso a memoria:
+
+\begin{itemize}[noitemsep]
+    \item Al recorrer A por filas, se aprovecha la localidad espacial ya que los elementos están contiguos en memoria
+    \item Como se vio en clase, el lenguaje C almacena matrices por filas, por lo que el acceso por columnas no favorece la localidad espacial
+    \item Por lo anterior, al acceder a B y C por columnas se pierde eficiencia porque cada acceso está separado por n posiciones en memoria, incrementando la posibilidad de tener que traer una nueva línea de caché para cada acceso.
+    \item Cada elemento de B y C se accede $n$ veces, pero normalmente ya no estará en caché cuando sea requerido nuevamente
+\end{itemize}
+
+
+\subsubsection{Optimización por bloques}
+La implementación optimizada utiliza bloques para dividir las matrices en submatrices más pequeñas. Esta estrategia permite mantener en la memoria caché los próximos datos a utilizar, reduciendo significativamente los accesos a memoria principal. El algoritmo procesa las matrices en bloques, manteniendo tanto las filas de $A$ como las columnas de $B$ en caché durante el cálculo:
+
+
+\begin{lstlisting}[style=cpp,language=C++]
+for (size_t i = 0; i < size; i += block_size) {
+    for (size_t j = 0; j < size; j += block_size) {
+        for (size_t k = 0; k < size; k += block_size) {
+            // Procesar el bloque actual
+            // std::min utilizado para no irse de rango en la matriz
+            for (size_t ii = i; ii < std::min(i + block_size, size); ii++) {
+                for (size_t jj = j; jj < std::min(j + block_size, size); jj++) {
+                    for (size_t kk = k; kk < std::min(k + block_size, size); kk++) {
+                        C[ii][kk] += A[ii][jj] * B[jj][kk];
+                    }
+                }
+            }
+        }
+    }
+}
+\end{lstlisting}
+
+Las ventajas de esta optimización son:
+\begin{itemize}[noitemsep]
+    \item \textbf{Mejor utilización de la caché:} Los bloques se dimensionan para que los datos procesados quepan en la memoria caché, reduciendo los fallos de caché.
+    \item \textbf{Mayor localidad temporal:} Los elementos de las matrices se reutilizan mientras permanecen en caché, minimizando los accesos a memoria principal.
+    \item \textbf{Reducción de latencia:} Al mantener los datos en caché, se reduce significativamente el tiempo de acceso a memoria.
+\end{itemize}
+
+\subsubsection{Cálculo del tamaño de bloque óptimo}
+La selección del tamaño de bloque está determinada principalmente por el tamaño de la caché L1. Para que los datos procesados quepan completamente en la caché L1, el tamaño de bloque debe satisfacer:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Función general:} Dado que necesitamos almacenar bloques iguales en las tres matrices (A, B y C) y que cada elemento ocupa sizeof(float) bytes, el tamaño máximo del bloque se calcula como:
+    \[
+    \text{block\_size} \leq \sqrt{\frac{\text{L1\_cache\_size}}{3 \cdot \text{sizeof(float)}}}
+    \]
+
+    \item \textbf{Aplicación a nuestra arquitectura:} Con L1\_cache\_size = 192KB = 192 · 1024 bytes y sizeof(float) = 4 bytes:
+    \[
+    \text{block\_size} \leq \sqrt{\frac{192 \cdot 1024}{3 \cdot 4}} = \sqrt{16384} \approx 128
+    \]
+\end{itemize}
+
+En nuestra implementación, se seleccionó un tamaño de bloque de 64.
+
+Para validar esta selección, se realizaron pruebas con diferentes tamaños de bloque (16, 32, 64, 128 y 256) y se midió el rendimiento en términos de MFLOPS. Los resultados mostraron que el tamaño de 64 proporcionaba el mejor rendimiento para la mayoría de los tamaños de matriz probados. 
+
+Esto es razonable, dado que es la mayor potencia de 2 anterior a 128, y, aunque 128 parecería en principio entrar exactamente en nuestra caché L1, en el sistema tambien hay otros procesos utilizando la cache, entre otros los de E/S mencionados anteriormente, por lo que no entrarian todos bloques de 128B.
+
+\subsubsection{Selección de Tamaños de Matriz}
+Los tamaños de matriz fueron seleccionados dinámicamente basándose en la jerarquía de caché del sistema:
+
+\begin{itemize}[noitemsep]
+    \item Se detectó automáticamente la configuración de caché:
+    \begin{itemize}[noitemsep]
+        \item L1d: 192 KB
+        \item L2: 5120 KB
+        \item L3: 12288 KB
+        \item Línea de caché: 64 bytes
+    \end{itemize}
+    
+    \item Para cada nivel de caché, se calculó el tamaño máximo de matriz considerando:
+    \begin{itemize}[noitemsep]
+        \item Espacio necesario para las tres matrices (A, B, C)
+        \item Tamaño de cada elemento (\texttt{float}, 4 bytes)
+        \item Overhead del sistema operativo
+    \end{itemize}
+
+    \item La fórmula utilizada para el cálculo fue:
+    \begin{equation}
+        n = \left\sqrt{\frac{cache\_size}{3 \times sizeof(float)}}\right\times 0.9
+    \end{equation}
+    donde:
+    \begin{itemize}[noitemsep]
+        \item El denominador 3 considera las tres matrices en memoria
+        \item El factor 0.9 provee un margen de seguridad para:
+        \begin{itemize}[noitemsep]
+            \item Overhead del sistema operativo en el procesamiento de la E/S.
+            \item Otros procesos que comparten la caché
+        \end{itemize}
+    \end{itemize}
+
+    \item Esto resultó en los siguientes tamaños de prueba:
+    \begin{itemize}[noitemsep]
+        \item 115x115 (cabe en L1 cache): requiere $\approx$ 159 KB de los 192 KB disponibles
+        \item 594x594 (cabe en L2 cache): requiere $\approx$ 4.2 MB de los 5 MB disponibles
+        \item 921x921 (cabe en L3 cache): requiere $\approx$ 10.2 MB de los 12 MB disponibles
+        \item 1842x1842 (excede todos los niveles de caché): requiere $\approx$ 40.8 MB
+    \end{itemize}
+\end{itemize}
+
+\subsection{Resultados}
+Los resultados muestran una clara mejora en rendimiento con la implementación por bloques:
+
+\begin{table}[!h]
+\centering
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Tamaño matriz} & \textbf{Básico (MFLOPS)} & \textbf{Bloques (MFLOPS)} & \textbf{Mejora (\%)} \\
+\midrule
+115x115 & 1354.41 & 9139.43 & 574.8 \\
+594x594 & 1171.95 & 7819.50 & 567.2 \\
+921x921 & 1136.32 & 8198.27 & 621.5 \\
+1842x1842 & 572.11 & 7894.65 & 1279.9 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[!h]
+\centering
+\includegraphics[width=0.65\textwidth]{performance_comparison.png}
+\caption{Comparación de rendimiento entre implementación tradicional y optimizada según tamaño de matriz. Las etiquetas B=64 y B=256 indican el tamaño de bloque óptimo para cada caso.}
+\label{fig:performance_comparison}
+\end{figure}
+
+\subsection{Análisis de Resultados}
+Como se observa en la Figura \ref{fig:performance_comparison} y en los datos medidos, la implementación por bloques muestra mejoras significativas respecto a la versión normal:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Rendimiento general:} La versión optimizada mantiene un rendimiento estable entre 7800-9200 MFLOPS, mientras que la implementación tradicional decae desde 1354 hasta 572 MFLOPS al aumentar el tamaño de matriz.
+    
+    \item \textbf{Tamaño de bloque:} El rendimiento óptimo se obtiene con B=64 para matrices hasta 921x921, y B=256 para matrices mayores (1842x1842).
+    
+    \item \textbf{Tiempos de ejecución:} La optimización reduce los tiempos de ejecución significativamente, siendo más notable en matrices grandes (1842x1842: 10.924s → 0.792s, reducción del 92.7\%). Esta mejora demuestra la efectividad del uso de bloques para matrices que exceden la capacidad de la caché.
+\end{itemize}
+
+\section{Conclusiones}
+\begin{itemize}[noitemsep]
+    \item Los experimentos realizados nos permitieron visualizar el impacto significativo que tienen los patrones de acceso a memoria en el rendimiento de los programas.
+    
+    \item En el primer ejercicio, el acceso secuencial resultó en promedio 28.44 veces más rápido que el acceso aleatorio, lo que evidencia la gran importancia de comprender el funcionamiento de la caché y los accesos a memoria y aprovecharlos eficientemente.
+    
+    \item En el segundo ejercicio, la comparación entre la multiplicación de matrices tradicional y una versión optimizada por bloques demostró mejoras sustanciales en el rendimiento, especialmente con matrices grandes que exceden el tamaño de la caché.
+
+    \item Sería interesante intentar aprovechar la forma en que C++ guarda en memoria por filas y no columnas. Una idea a explorar sería realizando opraciones sobre la matriz B (como por ejemplo trasponiéndola) para así el acceso a ell sea más eficiente en memoria. Dado el alcance de esta entrega no se llegó a experimentar sobre ello.
+    
+    \item Este proyecto nos llevó a reflexionar sobre cómo la forma en que se utiliza la memoria caché en nuestros programas puede tener un impacto enorme, no solo en contextos de laboratorio, sino también en aplicaciones reales, donde el rendimiento puede marcar una diferencia crítica.
+\end{itemize}
+
+
+\end{document}
