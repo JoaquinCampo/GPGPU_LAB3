@@ -17,6 +17,9 @@
 #include <vector>
 #include <cmath>
 
+#define MAX_ROWS 4096
+#define MAX_COLS 4096
+
 /**
  * @brief Naive transpose kernel using only global memory.
  *
@@ -29,10 +32,12 @@
  * @param rows  Number of rows in the input matrix.
  * @param cols  Number of columns in the input matrix.
  */
-__global__ void transposeNaive(const int* in, int* out, int rows, int cols) {
+__global__ void transposeNaive(const int *in, int *out, int rows, int cols)
+{
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
-    if (row < rows && col < cols) {
+    if (row < rows && col < cols)
+    {
         // Transpose element
         out[col * rows + row] = in[row * cols + col];
     }
@@ -52,34 +57,40 @@ __global__ void transposeNaive(const int* in, int* out, int rows, int cols) {
  * @param argv  Array of argument strings (rows, cols).
  * @return      Returns 0 on success.
  */
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[])
+{
     // Matrix dimensions (default 1024x1024)
     int rows = 1024;
     int cols = 1024;
-    if (argc >= 3) {
+    if (argc > 1) {
         rows = std::atoi(argv[1]);
         cols = std::atoi(argv[2]);
     }
     std::cout << "Matrix size: " << rows << " x " << cols << std::endl;
 
+    if (rows > MAX_ROWS || cols > MAX_COLS) {
+        std::cerr << "Error: Matrix size exceeds MAX_ROWS or MAX_COLS." << std::endl;
+        return 1;
+    }
+
     size_t size = static_cast<size_t>(rows) * cols;
     size_t bytes = size * sizeof(int);
 
     // Host allocations
-    std::vector<int> h_in(size);
-    std::vector<int> h_out(size);
-
+    int h_in[MAX_ROWS][MAX_COLS];
+    int h_out[MAX_ROWS][MAX_COLS];
     // Initialize input matrix
-    for (size_t i = 0; i < size; ++i) {
-        h_in[i] = static_cast<int>(i);
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            h_in[i][j] = i * cols + j;
+        }
     }
 
     // Device allocations
     int *d_in = nullptr, *d_out = nullptr;
     cudaMalloc(&d_in, bytes);
     cudaMalloc(&d_out, bytes);
-
-    cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_in, &h_in[0][0], bytes, cudaMemcpyHostToDevice);
 
     // Kernel configuration
     dim3 blockDim(32, 32);
@@ -99,7 +110,8 @@ int main(int argc, char* argv[]) {
     cudaDeviceSynchronize();
 
     // Timed runs
-    for (int i = 0; i < iterations; ++i) {
+    for (int i = 0; i < iterations; ++i)
+    {
         cudaEventRecord(start);
         transposeNaive<<<gridDim, blockDim>>>(d_in, d_out, rows, cols);
         cudaEventRecord(stop);
@@ -111,14 +123,19 @@ int main(int argc, char* argv[]) {
 
     // Compute average and standard deviation
     float sum = 0.0f;
-    for (float t : times) sum += t;
+    for (float t : times)
+        sum += t;
     float avg = sum / iterations;
     float sq_sum = 0.0f;
-    for (float t : times) sq_sum += (t - avg) * (t - avg);
+    for (float t : times)
+        sq_sum += (t - avg) * (t - avg);
     float stddev = std::sqrt(sq_sum / iterations);
 
     std::cout << "Average time over " << iterations
               << " runs: " << avg << " ms (± " << stddev << " ms)" << std::endl;
+
+    // After kernel runs, copy result back to host
+    cudaMemcpy(&h_out[0][0], d_out, bytes, cudaMemcpyDeviceToHost);
 
     // Cleanup
     cudaFree(d_in);
@@ -127,4 +144,4 @@ int main(int argc, char* argv[]) {
     cudaEventDestroy(stop);
 
     return 0;
-} 
+}

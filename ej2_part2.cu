@@ -15,6 +15,9 @@
 #include <vector>
 #include <cmath>
 
+#define MAX_ROWS 4096
+#define MAX_COLS 4096
+
 /**
  * @brief Shared-memory tiled transpose kernel with padding.
  *
@@ -76,21 +79,29 @@ int main(int argc, char* argv[]) {
         blockX = std::atoi(argv[3]);
         blockY = std::atoi(argv[4]);
     }
+    if (rows > MAX_ROWS || cols > MAX_COLS) {
+        std::cerr << "Error: Matrix size exceeds MAX_ROWS or MAX_COLS." << std::endl;
+        return 1;
+    }
     std::cout << "Ej2 Part2: Matrix " << rows << "x" << cols
               << ", Block " << blockX << "x" << blockY << std::endl;
 
     size_t size = static_cast<size_t>(rows) * cols;
     size_t bytes = size * sizeof(int);
 
-    // Allocate host buffers
-    std::vector<int> h_in(size), h_out(size);
-    for (size_t i = 0; i < size; ++i) h_in[i] = static_cast<int>(i);
+    int h_in[MAX_ROWS][MAX_COLS];
+    int h_out[MAX_ROWS][MAX_COLS];
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            h_in[i][j] = i * cols + j;
+        }
+    }
 
     // Allocate device buffers
     int *d_in = nullptr, *d_out = nullptr;
     cudaMalloc(&d_in, bytes);
     cudaMalloc(&d_out, bytes);
-    cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_in, &h_in[0][0], bytes, cudaMemcpyHostToDevice);
 
     dim3 blockDim(blockX, blockY);
     dim3 gridDim((cols + blockX - 1) / blockX,
@@ -128,11 +139,11 @@ int main(int argc, char* argv[]) {
     std::cout << "Average time: " << avg << " ms ± " << stddev << " ms" << std::endl;
 
     // Verify correctness
-    cudaMemcpy(h_out.data(), d_out, bytes, cudaMemcpyDeviceToHost);
+    cudaMemcpy(&h_out[0][0], d_out, bytes, cudaMemcpyDeviceToHost);
     bool ok = true;
     for (int r = 0; r < rows && ok; ++r) {
         for (int c = 0; c < cols && ok; ++c) {
-            if (h_out[c * rows + r] != h_in[r * cols + c]) ok = false;
+            if (h_out[c][r] != h_in[r][c]) ok = false;
         }
     }
     std::cout << "TransposeSharedPad " << (ok ? "PASSED" : "FAILED") << std::endl;
