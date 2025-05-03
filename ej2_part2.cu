@@ -18,7 +18,7 @@
 #define MAX_ROWS 4096
 #define MAX_COLS 4096
 
-#define CUDA_CHK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+#define CUDA_CHK(ans) do { gpuAssert((ans), FILE, LINE); } while(0)
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
 {
    if (code != cudaSuccess) 
