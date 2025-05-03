@@ -19,6 +19,17 @@
 #define MAX_ROWS 4096
 #define MAX_COLS 4096
 
+#define CUDA_CHK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      if (abort) exit(code);
+   }
+}
+
+
 /**
  * @brief Shared-memory tiled transpose kernel (no padding).
  *
@@ -108,9 +119,9 @@ int main(int argc, char* argv[]) {
 
     // Allocate device buffers
     int *d_in = nullptr, *d_out = nullptr;
-    cudaMalloc(&d_in, bytes);
-    cudaMalloc(&d_out, bytes);
-    cudaMemcpy(d_in, &h_in[0][0], bytes, cudaMemcpyHostToDevice);
+    CUDA_CHK(cudaMalloc(&d_in, bytes));
+    CUDA_CHK(cudaMalloc(&d_out, bytes));
+    CUDA_CHK(cudaMemcpy(d_in, &h_in[0][0], bytes, cudaMemcpyHostToDevice));
 
     // Compute grid dimensions
     dim3 blockDim(blockX, blockY);
@@ -119,8 +130,8 @@ int main(int argc, char* argv[]) {
 
     // Prepare CUDA events for timing
     cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    CUDA_CHK(cudaEventCreate(&start));
+    CUDA_CHK(cudaEventCreate(&stop));
 
     const int iterations = 10;
     std::vector<float> times(iterations);
@@ -128,15 +139,17 @@ int main(int argc, char* argv[]) {
     // Warm-up run
     size_t sharedBytes = blockX * blockY * sizeof(int);
     transposeShared<<<gridDim, blockDim, sharedBytes>>>(d_in, d_out, rows, cols);
-    cudaDeviceSynchronize();
+    CUDA_CHK(cudaGetLastError());
+    CUDA_CHK(cudaDeviceSynchronize());
 
     // Timed iterations
     for (int i = 0; i < iterations; ++i) {
-        cudaEventRecord(start);
+        CUDA_CHK(cudaEventRecord(start));
         transposeShared<<<gridDim, blockDim, sharedBytes>>>(d_in, d_out, rows, cols);
-        cudaEventRecord(stop);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&times[i], start, stop);
+        CUDA_CHK(cudaGetLastError());
+        CUDA_CHK(cudaEventRecord(stop));
+        CUDA_CHK(cudaEventSynchronize(stop));
+        CUDA_CHK(cudaEventElapsedTime(&times[i], start, stop));
     }
 
     // Compute statistics
@@ -149,7 +162,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Average: " << avg << " ms ± " << stddev << " ms" << std::endl;
 
     // After kernel runs, copy result back to host
-    cudaMemcpy(&h_out[0][0], d_out, bytes, cudaMemcpyDeviceToHost);
+    CUDA_CHK(cudaMemcpy(&h_out[0][0], d_out, bytes, cudaMemcpyDeviceToHost));
     // Verify correctness of transpose
     bool ok = true;
     for (int r = 0; r < rows && ok; ++r) {
@@ -162,10 +175,10 @@ int main(int argc, char* argv[]) {
     std::cout << "TransposeShared " << (ok ? "PASSED" : "FAILED") << std::endl;
 
     // Cleanup
-    cudaFree(d_in);
-    cudaFree(d_out);
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    CUDA_CHK(cudaFree(d_in));
+    CUDA_CHK(cudaFree(d_out));
+    CUDA_CHK(cudaEventDestroy(start));
+    CUDA_CHK(cudaEventDestroy(stop));
 
     return ok ? 0 : 1;
 } 
