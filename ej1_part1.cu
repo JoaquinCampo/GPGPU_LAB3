@@ -17,8 +17,7 @@
 #include <vector>
 #include <cmath>
 
-#define MAX_ROWS 4096
-#define MAX_COLS 4096
+#define MAX_DIM 4096
 
 #define CUDA_CHK(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
@@ -29,7 +28,6 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
       if (abort) exit(code);
    }
 }
-
 
 
 /**
@@ -55,107 +53,96 @@ __global__ void transposeNaive(const int *in, int *out, int rows, int cols)
     }
 }
 
+
 /**
- * @brief Host entry point: sets up data, launches kernel, measures time, validates.
+ * @brief Host entry point for naive GPU matrix transpose (global memory only).
  *
- * - Parses optional command-line arguments for matrix dimensions.
- * - Allocates host and device buffers, initializes input with sequential values.
- * - Launches kernel with 32x32 thread blocks and grid covering the matrix.
- * - Performs a warm-up run, then times 10 executions using CUDA events.
- * - Calculates average and standard deviation of execution times.
- * - Copies result back to host and verifies correctness element-wise.
+ * Steps performed:
+ * - Parses optional command-line arguments for matrix dimensions (rows, cols).
+ * - Allocates and initializes host input matrix with sequential values.
+ * - Allocates device memory for input and output matrices.
+ * - Copies input data to device.
+ * - Configures and launches the transposeNaive kernel (32x32 thread blocks).
+ * - Synchronizes and checks for kernel errors.
+ * - Copies the transposed result back to host.
+ * - Verifies correctness by comparing each element to the expected value.
+ * - Prints whether the transpose succeeded or failed.
+ * - Frees device memory before exit.
+ *
+ * Usage:
+ *   ./programa [rows cols]
+ *   (Defaults: rows=1024, cols=1024)
  *
  * @param argc  Number of command-line arguments.
- * @param argv  Array of argument strings (rows, cols).
- * @return      Returns 0 on success.
+ * @param argv  Array of argument strings (optionally: rows, cols).
+ * @return      0 if transpose is correct, 1 for usage/dimension error, 2 for failed verification.
  */
-int main(int argc, char *argv[])
-{
-    // Matrix dimensions (default 1024x1024)
-    int rows = 1024;
-    int cols = 1024;
-    if (argc > 1) {
+int main(int argc, char *argv[]) {
+    // 1) Parse arguments
+    int rows = 1024, cols = 1024;
+    if (argc == 3) {
         rows = std::atoi(argv[1]);
         cols = std::atoi(argv[2]);
-    }
-    std::cout << "Matrix size: " << rows << " x " << cols << std::endl;
-
-    if (rows > MAX_ROWS || cols > MAX_COLS) {
-        std::cerr << "Error: Matrix size exceeds MAX_ROWS or MAX_COLS." << std::endl;
+    } else if (argc != 1) {
+        std::cerr << "Usage: " << argv[0] << " [rows cols]\n";
         return 1;
     }
+    if (rows > MAX_DIM || cols > MAX_DIM) {
+        std::cerr << "Error: dims must be ≤ " << MAX_DIM << "\n";
+        return 1;
+    }
+    std::cout << "Matrix size: " << rows << " x " << cols << "\n";
 
-    size_t size = static_cast<size_t>(rows) * cols;
+    size_t size = size_t(rows) * cols;
     size_t bytes = size * sizeof(int);
 
-    // Host allocations
-    int h_in[MAX_ROWS][MAX_COLS];
-    int h_out[MAX_ROWS][MAX_COLS];
-    // Initialize input matrix
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < cols; ++j) {
-            h_in[i][j] = i * cols + j;
-        }
-    }
+    // 2) Allocate & init host arrays
+    std::vector<int> h_in(size), h_out(size);
+    for (int i = 0; i < rows; ++i)
+        for (int j = 0; j < cols; ++j)
+            h_in[i * cols + j] = i * cols + j;
 
-    // Device allocations
+    // 3) Allocate device arrays
     int *d_in = nullptr, *d_out = nullptr;
-    CUDA_CHK(cudaMalloc(&d_in, bytes));
+    CUDA_CHK(cudaMalloc(&d_in,  bytes));
     CUDA_CHK(cudaMalloc(&d_out, bytes));
-    CUDA_CHK(cudaMemcpy(d_in, &h_in[0][0], bytes, cudaMemcpyHostToDevice));
+    CUDA_CHK(cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice));
 
-    // Kernel configuration
+    // 4) Kernel launch config
     dim3 blockDim(32, 32);
-    dim3 gridDim((cols + blockDim.x - 1) / blockDim.x,
-                 (rows + blockDim.y - 1) / blockDim.y);
 
-    // Create CUDA events for timing
-    cudaEvent_t start, stop;
-    CUDA_CHK(cudaEventCreate(&start));
-    CUDA_CHK(cudaEventCreate(&stop));
+    // Calculate how many blocks are needed in each dimension
+    int remainder_x = cols % blockDim.x;
+    int remainder_y = rows % blockDim.y;
 
-    const int iterations = 10;
-    std::vector<float> times(iterations);
+    // If there is a remainder, we need one extra block to cover the edge
+    int numBlocksX = cols / blockDim.x + (remainder_x > 0 ? 1 : 0);
+    int numBlocksY = rows / blockDim.y + (remainder_y > 0 ? 1 : 0);
+    dim3 gridDim(numBlocksX, numBlocksY);
 
-    // Warm-up
+    // 5) Launch once
     transposeNaive<<<gridDim, blockDim>>>(d_in, d_out, rows, cols);
     CUDA_CHK(cudaGetLastError());
     CUDA_CHK(cudaDeviceSynchronize());
 
-    // Timed runs
-    for (int i = 0; i < iterations; ++i)
-    {
-        CUDA_CHK(cudaEventRecord(start));
-        transposeNaive<<<gridDim, blockDim>>>(d_in, d_out, rows, cols);
-        CUDA_CHK(cudaGetLastError());
-        CUDA_CHK(cudaEventRecord(stop));
-        CUDA_CHK(cudaEventSynchronize(stop));
-        float ms = 0.0f;
-        CUDA_CHK(cudaEventElapsedTime(&ms, start, stop));
-        times[i] = ms;
+    // 6) Copy back & verify correctness
+    CUDA_CHK(cudaMemcpy(h_out.data(), d_out, bytes, cudaMemcpyDeviceToHost));
+    bool ok = true;
+    for (int i = 0; i < rows && ok; ++i) {
+      for (int j = 0; j < cols; ++j) {
+        int expected = i * cols + j;
+        if (h_out[j * rows + i] != expected) {
+          std::cerr << "FAILED at ("<<i<<","<<j<<"): "
+                    << h_out[j * rows + i]
+                    << " != " << expected << "\n";
+          ok = false; break;
+        }
+      }
     }
+    std::cout << (ok ? "Transpose OK\n" : "Transpose FAILED\n");
 
-    // Compute average and standard deviation
-    float sum = 0.0f;
-    for (float t : times)
-        sum += t;
-    float avg = sum / iterations;
-    float sq_sum = 0.0f;
-    for (float t : times)
-        sq_sum += (t - avg) * (t - avg);
-    float stddev = std::sqrt(sq_sum / iterations);
-
-    std::cout << "Average time over " << iterations
-              << " runs: " << avg << " ms (± " << stddev << " ms)" << std::endl;
-
-    // After kernel runs, copy result back to host
-    CUDA_CHK(cudaMemcpy(&h_out[0][0], d_out, bytes, cudaMemcpyDeviceToHost));
-
-    // Cleanup
+    // 7) Cleanup
     CUDA_CHK(cudaFree(d_in));
     CUDA_CHK(cudaFree(d_out));
-    CUDA_CHK(cudaEventDestroy(start));
-    CUDA_CHK(cudaEventDestroy(stop));
-
-    return 0;
+    return ok ? 0 : 2;
 }
