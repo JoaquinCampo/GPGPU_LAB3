@@ -15,6 +15,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <nvtx3/nvToolsExt.h>
 
 #define MAX_ROWS 4096
 #define MAX_COLS 4096
@@ -119,9 +120,17 @@ int main(int argc, char* argv[]) {
 
     // Allocate device buffers
     int *d_in = nullptr, *d_out = nullptr;
+    nvtxRangePushA("Malloc in");
     CUDA_CHK(cudaMalloc(&d_in, bytes));
+    nvtxRangePop();
+
+    nvtxRangePushA("Malloc out");
     CUDA_CHK(cudaMalloc(&d_out, bytes));
+    nvtxRangePop();
+
+    nvtxRangePushA("H2D memcpy");
     CUDA_CHK(cudaMemcpy(d_in, &h_in[0][0], bytes, cudaMemcpyHostToDevice));
+    nvtxRangePop();
 
     // Compute grid dimensions
     dim3 blockDim(blockX, blockY);
@@ -135,12 +144,16 @@ int main(int argc, char* argv[]) {
 
     // 5) Launch kernel once
     size_t sharedBytes = blockX * blockY * sizeof(int);
+    nvtxRangePushA("Kernel launch");
     transposeShared<<<gridDim, blockDim, sharedBytes>>>(d_in, d_out, rows, cols);
     CUDA_CHK(cudaGetLastError());
     CUDA_CHK(cudaDeviceSynchronize());
+    nvtxRangePop();
 
     // 6) Copy back & verify correctness
+    nvtxRangePushA("D2H memcpy");
     CUDA_CHK(cudaMemcpy(&h_out[0][0], d_out, bytes, cudaMemcpyDeviceToHost));
+    nvtxRangePop();
     bool ok = true;
     for (int r = 0; r < rows && ok; ++r) {
         for (int c = 0; c < cols; ++c) {

@@ -16,7 +16,8 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <nvtx3/nvToolsExt.h> 
+#include <nvtx3/nvToolsExt.h>
+
 
 #define MAX_DIM 4096
 
@@ -105,12 +106,13 @@ int main(int argc, char *argv[]) {
 
     // 3) Allocate device arrays
     int *d_in = nullptr, *d_out = nullptr;
-    nvtxRangePushA("Malloc in");
+    nvtxRangePushA("Malloc in")
         CUDA_CHK(cudaMalloc(&d_in,  bytes));
-    nvtxRangePop();
-    nvtxRangePushA("Malloc out");
+    nvtxRangePop()
+
+    nvtxRangePushA("Malloc out")    
         CUDA_CHK(cudaMalloc(&d_out, bytes));
-    nvtxRangePop();
+    nvtxRangePop()
 
     nvtxRangePushA("H2D memcpy");
         CUDA_CHK(cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice));
