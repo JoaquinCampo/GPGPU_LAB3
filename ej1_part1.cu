@@ -16,6 +16,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <nvtx3/nvToolsExt.h> 
 
 #define MAX_DIM 4096
 
@@ -104,9 +105,17 @@ int main(int argc, char *argv[]) {
 
     // 3) Allocate device arrays
     int *d_in = nullptr, *d_out = nullptr;
-    CUDA_CHK(cudaMalloc(&d_in,  bytes));
-    CUDA_CHK(cudaMalloc(&d_out, bytes));
-    CUDA_CHK(cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice));
+    nvtxRangePushA("Malloc in");
+        CUDA_CHK(cudaMalloc(&d_in,  bytes));
+    nvtxRangePop();
+    nvtxRangePushA("Malloc out");
+        CUDA_CHK(cudaMalloc(&d_out, bytes));
+    nvtxRangePop();
+
+    nvtxRangePushA("H2D memcpy");
+        CUDA_CHK(cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice));
+    nvtxRangePop();
+
 
     // 4) Kernel launch config
     dim3 blockDim(32, 32);
@@ -121,12 +130,18 @@ int main(int argc, char *argv[]) {
     dim3 gridDim(numBlocksX, numBlocksY);
 
     // 5) Launch once
-    transposeNaive<<<gridDim, blockDim>>>(d_in, d_out, rows, cols);
-    CUDA_CHK(cudaGetLastError());
-    CUDA_CHK(cudaDeviceSynchronize());
+    nvtxRangePushA("Kernel launch");
+        transposeNaive<<<gridDim, blockDim>>>(d_in, d_out, rows, cols);
+        CUDA_CHK(cudaGetLastError());
+        CUDA_CHK(cudaDeviceSynchronize());
+    nvtxRangePop();
+
 
     // 6) Copy back & verify correctness
-    CUDA_CHK(cudaMemcpy(h_out.data(), d_out, bytes, cudaMemcpyDeviceToHost));
+    nvtxRangePushA("D2H memcpy");
+        CUDA_CHK(cudaMemcpy(h_out.data(), d_out, bytes, cudaMemcpyDeviceToHost));
+    nvtxRangePop();
+
     bool ok = true;
     for (int i = 0; i < rows && ok; ++i) {
       for (int j = 0; j < cols; ++j) {
