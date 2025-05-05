@@ -1,92 +1,92 @@
 /**
  * @file main.cu
- * @brief Kernel and host code for naive GPU matrix transpose using global memory.
+ * @brief kernel and host code for naive gpu matrix transpose using global memory.
  *
- * Implements a __global__ kernel that transposes an integer matrix on the GPU
- * by reading and writing only from/to global memory. The host-side code
+ * implements a __global__ kernel that transposes an integer matrix on the gpu
+ * by reading and writing only from/to global memory. the host-side code
  * allocates buffers, initializes data, launches the kernel, measures execution time
  * over multiple runs, and verifies correctness of the result.
  *
- * Usage:
+ * usage:
  *   ./programa [rows cols]
- * Default matrix size is 1024x1024 if no arguments are provided.
+ * default matrix size is 1024x1024 if no arguments are provided.
  */
 
 #include <cuda_runtime.h>
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <nvtx3/nvToolsExt.h>
+#include <nvtx3/nvtoolsext.h>
 
 
-#define MAX_DIM 4096
+#define max_dim 4096
 
-#define CUDA_CHK(ans) do { gpuAssert((ans), __FILE__, __LINE__); } while(0)
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+#define cuda_chk(ans) do { gpuassert((ans), __file__, __line__); } while(0)
+inline void gpuassert(cudaerror_t code, const char *file, int line, bool abort=true)
 {
-   if (code != cudaSuccess)
+   if (code != cudasuccess)
    {
-      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      fprintf(stderr,"gpuassert: %s %s %d\n", cudageterrorstring(code), file, line);
       if (abort) exit(code);
    }
 }
 
 
 /**
- * @brief Naive transpose kernel using only global memory.
+ * @brief naive transpose kernel using only global memory.
  *
- * Each thread computes its 2D coordinates and performs the transpose
+ * each thread computes its 2d coordinates and performs the transpose
  * by reading from input at (row, col) and writing to output at (col, row).
- * No shared memory or tiling used: serves as baseline for memory-access analysis.
+ * no shared memory or tiling used: serves as baseline for memory-access analysis.
  *
- * @param in    Pointer to input matrix in row-major order (rows x cols).
- * @param out   Pointer to output matrix in row-major order (cols x rows).
- * @param rows  Number of rows in the input matrix.
- * @param cols  Number of columns in the input matrix.
+ * @param in    pointer to input matrix in row-major order (rows x cols).
+ * @param out   pointer to output matrix in row-major order (cols x rows).
+ * @param rows  number of rows in the input matrix.
+ * @param cols  number of columns in the input matrix.
  */
-__global__ void transposeNaive(const int *in, int *out, int rows, int cols)
+__global__ void transposenaive(const int *in, int *out, int rows, int cols)
 {
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int row = blockidx.y * blockdim.y + threadidx.y;
+    int col = blockidx.x * blockdim.x + threadidx.x;
     if (row < rows && col < cols)
     {
-        // Transpose element
+        // transpose element
         out[col * rows + row] = in[row * cols + col];
     }
 }
 
 
 /**
- * @brief Host entry point for naive GPU matrix transpose (global memory only).
+ * @brief host entry point for naive gpu matrix transpose (global memory only).
  *
- * Steps performed:
- * - Parses optional command-line arguments for matrix dimensions (rows, cols).
- * - Allocates and initializes host input matrix with sequential values.
- * - Allocates device memory for input and output matrices.
- * - Copies input data to device.
- * - Configures and launches the transposeNaive kernel (32x32 thread blocks).
- * - Synchronizes and checks for kernel errors.
- * - Copies the transposed result back to host.
- * - Verifies correctness by comparing each element to the expected value.
- * - Prints whether the transpose succeeded or failed.
- * - Frees device memory before exit.
+ * steps performed:
+ * - parses optional command-line arguments for matrix dimensions (rows, cols).
+ * - allocates and initializes host input matrix with sequential values.
+ * - allocates device memory for input and output matrices.
+ * - copies input data to device.
+ * - configures and launches the transposenaive kernel (32x32 thread blocks).
+ * - synchronizes and checks for kernel errors.
+ * - copies the transposed result back to host.
+ * - verifies correctness by comparing each element to the expected value.
+ * - prints whether the transpose succeeded or failed.
+ * - frees device memory before exit.
  *
- * Usage:
+ * usage:
  *   ./programa [rows cols]
- *   (Defaults: rows=1024, cols=1024)
+ *   (defaults: rows=1024, cols=1024)
  *
- * @param argc  Number of command-line arguments.
- * @param argv  Array of argument strings (optionally: rows, cols).
+ * @param argc  number of command-line arguments.
+ * @param argv  array of argument strings (optionally: rows, cols).
  * @return      0 if transpose is correct, 1 for usage/dimension error, 2 for failed verification.
  */
 int main(int argc, char *argv[]) {
-    // 1) Parse arguments
+    // 1) parse arguments
     int rows = 1024, cols = 1024;
     if (argc == 3) {
         rows = std::atoi(argv[1]);
         cols = std::atoi(argv[2]);
     } else if (argc != 1) {
-        std::cerr << "Usage: " << argv[0] << " [rows cols]\n";
+        std::cerr << "usage: " << argv[0] << " [rows cols]\n";
         return 1;
     }
     if (rows > MAX_DIM || cols > MAX_DIM) {
@@ -100,19 +100,20 @@ int main(int argc, char *argv[]) {
 
     // 2) Allocate & init host arrays
     std::vector<int> h_in(size), h_out(size);
+    nvtxRangePushA("Init in");
     for (int i = 0; i < rows; ++i)
         for (int j = 0; j < cols; ++j)
             h_in[i * cols + j] = i * cols + j;
+    nvtxRangePop();
 
     // 3) Allocate device arrays
     int *d_in = nullptr, *d_out = nullptr;
-    nvtxRangePushA("Malloc in")
+    nvtxRangePushA("Malloc in");
         CUDA_CHK(cudaMalloc(&d_in,  bytes));
-    nvtxRangePop()
-
-    nvtxRangePushA("Malloc out")    
+    nvtxRangePop();
+    nvtxRangePushA("Malloc out");
         CUDA_CHK(cudaMalloc(&d_out, bytes));
-    nvtxRangePop()
+    nvtxRangePop();
 
     nvtxRangePushA("H2D memcpy");
         CUDA_CHK(cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice));

@@ -1,169 +1,168 @@
 /**
- * @file ej1_part2.cu
- * @brief GPU matrix transpose using shared memory tile for coalesced access.
+ * @file main.cu
+ * @brief kernel and host code for naive gpu matrix transpose using global memory.
  *
- * Implements a tiled transpose kernel that loads a block of size blockX x blockY
- * into shared memory, then writes it transposed back to global memory.
- * Host code measures execution time over multiple runs and verifies correctness.
+ * implements a __global__ kernel that transposes an integer matrix on the gpu
+ * by reading and writing only from/to global memory. the host-side code
+ * allocates buffers, initializes data, launches the kernel, measures execution time
+ * over multiple runs, and verifies correctness of the result.
  *
- * Usage:
- *   ./programa_part2 <rows> <cols> <blockX> <blockY>
- * Default: 1024x1024 matrix, 32x32 block.
+ * usage:
+ *   ./programa [rows cols]
+ * default matrix size is 1024x1024 if no arguments are provided.
  */
 
 #include <cuda_runtime.h>
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <nvtx3/nvToolsExt.h>
+#include <nvtx3/nvtoolsext.h>
 
-#define MAX_ROWS 4096
-#define MAX_COLS 4096
 
-#define CUDA_CHK(ans) do { gpuAssert((ans), __FILE__, __LINE__); } while(0)
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+#define max_dim 4096
+
+#define cuda_chk(ans) do { gpuassert((ans), __file__, __line__); } while(0)
+inline void gpuassert(cudaerror_t code, const char *file, int line, bool abort=true)
 {
-   if (code != cudaSuccess) 
+   if (code != cudasuccess)
    {
-      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      fprintf(stderr,"gpuassert: %s %s %d\n", cudageterrorstring(code), file, line);
       if (abort) exit(code);
    }
 }
 
 
 /**
- * @brief Shared-memory tiled transpose kernel (no padding).
+ * @brief naive transpose kernel using only global memory.
  *
- * Each thread block loads a tile of size blockX x blockY from global memory
- * into shared memory, then writes the tile transposed to the output matrix.
- * This optimizes coalesced reads and writes by accessing shared memory for the transpose.
+ * each thread computes its 2d coordinates and performs the transpose
+ * by reading from input at (row, col) and writing to output at (col, row).
+ * no shared memory or tiling used: serves as baseline for memory-access analysis.
  *
- * Shared memory layout:
- *   tile[ty * blockX + tx] holds element at (row, col) for this thread.
- * Transposed write uses tile[tx * blockX + ty].
- *
- * @param in    Input matrix in global memory (rows x cols, row-major).
- * @param out   Output matrix in global memory (cols x rows, row-major).
- * @param rows  Number of rows in the input matrix.
- * @param cols  Number of columns in the input matrix.
+ * @param in    pointer to input matrix in row-major order (rows x cols).
+ * @param out   pointer to output matrix in row-major order (cols x rows).
+ * @param rows  number of rows in the input matrix.
+ * @param cols  number of columns in the input matrix.
  */
-__global__ void transposeShared(const int* in, int* out, int rows, int cols) {
-    extern __shared__ int tile[]; // dynamic shared memory array of size blockX*blockY
-    int blockX = blockDim.x;
-    int blockY = blockDim.y;
-    int tx = threadIdx.x;  // thread's x coordinate in block
-    int ty = threadIdx.y;  // thread's y coordinate in block
-    int row = blockIdx.y * blockY + ty;
-    int col = blockIdx.x * blockX + tx;
-
-    // Phase 1: Load global memory into shared tile
-    if (row < rows && col < cols) {
-        tile[ty * blockX + tx] = in[row * cols + col];
-    }
-    __syncthreads();
-
-    // Phase 2: Write tile transposed back to global memory
-    int trow = blockIdx.x * blockX + ty;
-    int tcol = blockIdx.y * blockY + tx;
-    if (trow < cols && tcol < rows) {
-        out[trow * rows + tcol] = tile[tx * blockX + ty];
+__global__ void transposenaive(const int *in, int *out, int rows, int cols)
+{
+    int row = blockidx.y * blockdim.y + threadidx.y;
+    int col = blockidx.x * blockdim.x + threadidx.x;
+    if (row < rows && col < cols)
+    {
+        // transpose element
+        out[col * rows + row] = in[row * cols + col];
     }
 }
 
+
 /**
- * @brief Host entry point for shared-memory transpose test.
+ * @brief host entry point for naive gpu matrix transpose (global memory only).
  *
- * - Parses optional command-line arguments for rows, cols, blockX and blockY.
- * - Allocates host and device buffers and initializes input matrix with linear values.
- * - Launches transposeShared kernel with dynamic shared memory.
- * - Measures execution time over multiple iterations using CUDA events.
- * - Computes average and standard deviation of the runs.
- * - Verifies correctness by comparing output matrix to expected transpose.
+ * steps performed:
+ * - parses optional command-line arguments for matrix dimensions (rows, cols).
+ * - allocates and initializes host input matrix with sequential values.
+ * - allocates device memory for input and output matrices.
+ * - copies input data to device.
+ * - configures and launches the transposenaive kernel (32x32 thread blocks).
+ * - synchronizes and checks for kernel errors.
+ * - copies the transposed result back to host.
+ * - verifies correctness by comparing each element to the expected value.
+ * - prints whether the transpose succeeded or failed.
+ * - frees device memory before exit.
  *
- * Usage:
- *   ./programa_part2 [rows cols [blockX blockY]]
- * Defaults: rows=1024, cols=1024, blockX=32, blockY=32.
+ * usage:
+ *   ./programa [rows cols]
+ *   (defaults: rows=1024, cols=1024)
  *
- * @param argc  Argument count.
- * @param argv  Argument vector: argv[1]=rows, argv[2]=cols, argv[3]=blockX, argv[4]=blockY.
- * @return      Zero on success, non-zero on failure.
+ * @param argc  number of command-line arguments.
+ * @param argv  array of argument strings (optionally: rows, cols).
+ * @return      0 if transpose is correct, 1 for usage/dimension error, 2 for failed verification.
  */
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
+    // 1) parse arguments
     int rows = 1024, cols = 1024;
-    int blockX = 32, blockY = 32;
-    if (argc >= 3) {
+    if (argc == 3) {
         rows = std::atoi(argv[1]);
         cols = std::atoi(argv[2]);
-    }
-    if (argc >= 5) {
-        blockX = std::atoi(argv[3]);
-        blockY = std::atoi(argv[4]);
-    }
-    if (rows > MAX_ROWS || cols > MAX_COLS) {
-        std::cerr << "Error: Matrix size exceeds MAX_ROWS or MAX_COLS." << std::endl;
+    } else if (argc != 1) {
+        std::cerr << "usage: " << argv[0] << " [rows cols]\n";
         return 1;
     }
-    std::cout << "Matrix: " << rows << "x" << cols
-              << ", Block: " << blockX << "x" << blockY << std::endl;
+    if (rows > MAX_DIM || cols > MAX_DIM) {
+        std::cerr << "Error: dims must be ≤ " << MAX_DIM << "\n";
+        return 1;
+    }
+    std::cout << "Matrix size: " << rows << " x " << cols << "\n";
 
-    size_t size = static_cast<size_t>(rows) * cols;
+    size_t size = size_t(rows) * cols;
     size_t bytes = size * sizeof(int);
 
-    // Allocate and initialize host buffers
-    int h_in[MAX_ROWS][MAX_COLS];
-    int h_out[MAX_ROWS][MAX_COLS];
-    for (int i = 0; i < rows; ++i) {
-        for (int j = 0; j < cols; ++j) {
-            h_in[i][j] = i * cols + j;
-        }
-    }
-
-    // Allocate device buffers
-    int *d_in = nullptr, *d_out = nullptr;
-    nvtxRangePushA("Malloc in");
-    CUDA_CHK(cudaMalloc(&d_in, bytes));
+    // 2) Allocate & init host arrays
+    std::vector<int> h_in(size), h_out(size);
+    nvtxRangePushA("Init in");
+    for (int i = 0; i < rows; ++i)
+        for (int j = 0; j < cols; ++j)
+            h_in[i * cols + j] = i * cols + j;
     nvtxRangePop();
 
+    // 3) Allocate device arrays
+    int *d_in = nullptr, *d_out = nullptr;
+    nvtxRangePushA("Malloc in");
+        CUDA_CHK(cudaMalloc(&d_in,  bytes));
+    nvtxRangePop();
     nvtxRangePushA("Malloc out");
-    CUDA_CHK(cudaMalloc(&d_out, bytes));
+        CUDA_CHK(cudaMalloc(&d_out, bytes));
     nvtxRangePop();
 
     nvtxRangePushA("H2D memcpy");
-    CUDA_CHK(cudaMemcpy(d_in, &h_in[0][0], bytes, cudaMemcpyHostToDevice));
+        CUDA_CHK(cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice));
     nvtxRangePop();
 
-    // Compute grid dimensions
-    dim3 blockDim(blockX, blockY);
+
+    // 4) Kernel launch config
+    // Use command line arguments for block dimensions if provided (args 3 & 4)
+    int blockDimX = 32, blockDimY = 32;
+    if (argc >= 5) {
+        blockDimX = std::atoi(argv[3]);
+        blockDimY = std::atoi(argv[4]);
+    }
+    dim3 blockDim(blockDimX, blockDimY);
+    std::cout << "Block dimensions: " << blockDimX << " x " << blockDimY << std::endl;
+
     // Calculate how many blocks are needed in each dimension
     int remainder_x = cols % blockDim.x;
     int remainder_y = rows % blockDim.y;
+
     // If there is a remainder, we need one extra block to cover the edge
     int numBlocksX = cols / blockDim.x + (remainder_x > 0 ? 1 : 0);
     int numBlocksY = rows / blockDim.y + (remainder_y > 0 ? 1 : 0);
     dim3 gridDim(numBlocksX, numBlocksY);
 
-    // 5) Launch kernel once
-    size_t sharedBytes = blockX * blockY * sizeof(int);
+    // 5) Launch once
     nvtxRangePushA("Kernel launch");
-    transposeShared<<<gridDim, blockDim, sharedBytes>>>(d_in, d_out, rows, cols);
-    CUDA_CHK(cudaGetLastError());
-    CUDA_CHK(cudaDeviceSynchronize());
+        transposeNaive<<<gridDim, blockDim>>>(d_in, d_out, rows, cols);
+        CUDA_CHK(cudaGetLastError());
+        CUDA_CHK(cudaDeviceSynchronize());
     nvtxRangePop();
+
 
     // 6) Copy back & verify correctness
     nvtxRangePushA("D2H memcpy");
-    CUDA_CHK(cudaMemcpy(&h_out[0][0], d_out, bytes, cudaMemcpyDeviceToHost));
+        CUDA_CHK(cudaMemcpy(h_out.data(), d_out, bytes, cudaMemcpyDeviceToHost));
     nvtxRangePop();
+
     bool ok = true;
-    for (int r = 0; r < rows && ok; ++r) {
-        for (int c = 0; c < cols; ++c) {
-            if (h_out[c][r] != h_in[r][c]) {
-                std::cerr << "FAILED at (" << r << "," << c << "): "
-                          << h_out[c][r] << " != " << h_in[r][c] << "\n";
-                ok = false;
-                break;
-            }
+    for (int i = 0; i < rows && ok; ++i) {
+      for (int j = 0; j < cols; ++j) {
+        int expected = i * cols + j;
+        if (h_out[j * rows + i] != expected) {
+          std::cerr << "FAILED at ("<<i<<","<<j<<"): "
+                    << h_out[j * rows + i]
+                    << " != " << expected << "\n";
+          ok = false; break;
         }
+      }
     }
     std::cout << (ok ? "Transpose OK\n" : "Transpose FAILED\n");
 
@@ -171,4 +170,4 @@ int main(int argc, char* argv[]) {
     CUDA_CHK(cudaFree(d_in));
     CUDA_CHK(cudaFree(d_out));
     return ok ? 0 : 2;
-} 
+}
