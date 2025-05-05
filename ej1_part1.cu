@@ -80,20 +80,32 @@ __global__ void transposenaive(const int *in, int *out, int rows, int cols)
  * @return      0 if transpose is correct, 1 for usage/dimension error, 2 for failed verification.
  */
 int main(int argc, char *argv[]) {
-    // 1) parse arguments
+    // 1) Parse arguments
     int rows = 1024, cols = 1024;
+    int blockX = 32, blockY = 32; // Default block dimensions
     if (argc == 3) {
         rows = std::atoi(argv[1]);
         cols = std::atoi(argv[2]);
+    } else if (argc == 5) {
+        rows = std::atoi(argv[1]);
+        cols = std::atoi(argv[2]);
+        blockX = std::atoi(argv[3]);
+        blockY = std::atoi(argv[4]);
     } else if (argc != 1) {
-        std::cerr << "usage: " << argv[0] << " [rows cols]\n";
+        std::cerr << "Usage: " << argv[0] << " [rows cols [blockX blockY]]\n";
         return 1;
     }
     if (rows > MAX_DIM || cols > MAX_DIM) {
         std::cerr << "Error: dims must be ≤ " << MAX_DIM << "\n";
         return 1;
     }
-    std::cout << "Matrix size: " << rows << " x " << cols << "\n";
+    if (blockX <= 0 || blockY <= 0 || blockX * blockY > 1024) { // Check block size validity
+         std::cerr << "Error: Invalid block dimensions (" << blockX << "x" << blockY
+                   << "). Product must be > 0 and <= 1024.\n";
+         return 1;
+    }
+    std::cout << "Matrix size: " << rows << " x " << cols
+              << ", Block size: " << blockX << " x " << blockY << "\n";
 
     size_t size = size_t(rows) * cols;
     size_t bytes = size * sizeof(int);
@@ -121,7 +133,7 @@ int main(int argc, char *argv[]) {
 
 
     // 4) Kernel launch config
-    dim3 blockDim(32, 32);
+    dim3 blockDim(blockX, blockY); // Use parsed block dimensions
 
     // Calculate how many blocks are needed in each dimension
     int remainder_x = cols % blockDim.x;
