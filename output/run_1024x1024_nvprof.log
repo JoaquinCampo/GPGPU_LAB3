@@ -1,0 +1,4 @@
+==229487== NVPROF is profiling process 229487, command: ./ej1_part1 1024 1024
+Matrix size: 1024 x 1024
+Transpose OK
+==229487== Generated result file: /clustergpu/home/pmppg34/Practico3/output/run_1024x1024.nvprof
