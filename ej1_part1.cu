@@ -75,37 +75,29 @@ __global__ void transposenaive(const int *in, int *out, int rows, int cols)
  *   ./programa [rows cols]
  *   (defaults: rows=1024, cols=1024)
  *
- * @param argc  number of command-line arguments.
- * @param argv  array of argument strings (optionally: rows, cols).
- * @return      0 if transpose is correct, 1 for usage/dimension error, 2 for failed verification.
+ * @param argc  Number of command-line arguments.
+ * @param argv  Array of argument strings (argv[1]=blockX, argv[2]=blockY).
+ * @return      0 if transpose is correct, 2 for failed verification.
  */
 int main(int argc, char *argv[]) {
-    // 1) Parse arguments
-    int rows = 1024, cols = 1024;
-    int blockX = 32, blockY = 32; // Default block dimensions
-    if (argc == 3) {
-        rows = std::atoi(argv[1]);
-        cols = std::atoi(argv[2]);
-    } else if (argc == 5) {
-        rows = std::atoi(argv[1]);
-        cols = std::atoi(argv[2]);
-        blockX = std::atoi(argv[3]);
-        blockY = std::atoi(argv[4]);
-    } else if (argc != 1) {
-        std::cerr << "Usage: " << argv[0] << " [rows cols [blockX blockY]]\n";
-        return 1;
+    // Fixed matrix dimensions
+    const int rows = 1024;
+    const int cols = 1024;
+
+    // Assume exactly 2 arguments are provided: blockX and blockY
+    if (argc != 3) {
+        // Simplified usage message, as we assume correct input now
+        std::cerr << "Internal Error: Expected 2 arguments (blockX blockY), got " << argc - 1 << std::endl;
+        return 1; // Still good to have a basic check
     }
-    if (rows > MAX_DIM || cols > MAX_DIM) {
-        std::cerr << "Error: dims must be ≤ " << MAX_DIM << "\n";
-        return 1;
-    }
-    if (blockX <= 0 || blockY <= 0 || blockX * blockY > 1024) { // Check block size validity
-         std::cerr << "Error: Invalid block dimensions (" << blockX << "x" << blockY
-                   << "). Product must be > 0 and <= 1024.\n";
-         return 1;
-    }
-    std::cout << "Matrix size: " << rows << " x " << cols
-              << ", Block size: " << blockX << " x " << blockY << "\n";
+
+    int blockX = std::atoi(argv[1]);
+    int blockY = std::atoi(argv[2]);
+
+    // Removed dimension and block size validity checks as requested
+
+    std::cout << "Fixed Matrix size: " << rows << " x " << cols
+              << ", Using Block size: " << blockX << " x " << blockY << "\n";
 
     size_t size = size_t(rows) * cols;
     size_t bytes = size * sizeof(int);

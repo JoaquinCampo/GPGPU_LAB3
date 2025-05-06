@@ -7,42 +7,89 @@
 #SBATCH --partition=cursos
 #SBATCH --qos=gpgpu
 
+set -e # Exit immediately if a command exits with a non-zero status.
+
 # module load cuda   # uncomment if your cluster supports it
 export PATH=$PATH:/usr/local/cuda/bin
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/lib64
 
-# Build
-make clean && make
+# --- Configuration ---
+EXECUTABLE="./ej1_part1" # Assuming the executable is named ej1_part1
 
-# Matrix dims
-ROWS=${1:-1024}
-COLS=${2:-1024}
+# Matrix dims (use arguments or defaults)
+# ROWS=${1:-1024} # Removed, fixed in C++ code
+# COLS=${2:-1024} # Removed, fixed in C++ code
+
+# Define block sizes to test (pairs of BlockX BlockY)
+# Ensure BlockX * BlockY <= 1024
+declare -a BLOCK_SIZES=(
+    "32 32"
+    "16 64"
+    "64 16"
+    "8 128"
+    "128 8"
+    "32 8"
+    "8 32"
+    "16 16"
+    "32 16"
+    "16 32"
+)
 
 # Prepare output folder
-OUTPUT_DIR=output
+OUTPUT_DIR="output_1024x1024" # Keep fixed name or adjust as needed
 mkdir -p "${OUTPUT_DIR}"
 
-# Collect times
-# First, run Nsight Compute for detailed kernel analysis (only on first run to avoid overhead)
-BASE_NCU="${OUTPUT_DIR}/run1_${ROWS}x${COLS}_ncu"
-echo "=== Nsight Compute Profiling (ncu) ==="
-echo "Done. Files in ${OUTPUT_DIR}:"
-# ncu --list-chips
-nvprof -o "${OUTPUT_DIR}/run_${ROWS}x${COLS}.nvprof" -f ./ej1_part1 "${ROWS}" "${COLS}" &> "${OUTPUT_DIR}/run_${ROWS}x${COLS}_nvprof.log"
-# ncu -o test -f ej1_part1 1024 1024 &> test.log
-#ncu -o "${BASE_NCU}" --set full ./ej1_part1 1024 1024 --list-chips &> "${BASE_NCU}.log"
+# --- Build Step ---
+echo "=== Building Project ==="
+# rm -f "${EXECUTABLE}" # Ensure recompilation (already done by direct nvcc overwrite)
+# make clean && make ej1_part1 # Explicitly build the target --- Bypassing make for this target
 
+echo "Compiling ${EXECUTABLE} directly..."
+nvcc -O3 -arch=compute_50 -o "${EXECUTABLE}" ej1_part1.cu -lnvToolsExt
+if [ $? -ne 0 ]; then
+    echo "Error: Direct compilation of ${EXECUTABLE} failed."
+    exit 1
+fi
 
-# Run just once for now
-echo "=== Single Run ==="
-BASE="${OUTPUT_DIR}/run1_${ROWS}x${COLS}"
-nsys profile --stats=true -o "${BASE}" ./ej1_part1 "${ROWS}" "${COLS}" &> "${BASE}.log"
+# We might still want to build other targets if needed, using make:
+# echo "Building other make targets..."
+# make other_target1 other_target2
 
-# Now run nsys for all 10 runs as before
-# for i in $(seq 1 10); do
-#   echo "=== Run $i ==="
-#   BASE="${OUTPUT_DIR}/run${i}_${ROWS}x${COLS}"
-#   nsys profile --stats=true -o "${BASE}" ./ej1_part1 "${ROWS}" "${COLS}" &> "${BASE}.log"
-# done
+# Check if executable exists after build
+if [ ! -x "${EXECUTABLE}" ]; then
+    echo "Error: Executable '$EXECUTABLE' not found after direct compilation."
+    exit 1
+fi
 
-echo "Done"
+# --- Profiling Loop ---
+echo "=== Starting Profiling Runs for fixed 1024x1024 ==="
+
+for block_pair in "${BLOCK_SIZES[@]}"; do
+    # Split the pair into BLOCK_X and BLOCK_Y
+    read -r BLOCK_X BLOCK_Y <<< "$block_pair"
+
+    echo "--------------------------------------------------"
+    echo "Profiling with Block Size: ${BLOCK_X} x ${BLOCK_Y}"
+    echo "--------------------------------------------------"
+
+    # Define unique base name for output files for this configuration
+    BASE_FILENAME="${OUTPUT_DIR}/run_1024x1024_${BLOCK_X}x${BLOCK_Y}" # Keep naming convention
+
+    # Diagnostic: Run directly first to check argument parsing
+    echo "Direct execution check: ${EXECUTABLE} ${BLOCK_X} ${BLOCK_Y}"
+    ${EXECUTABLE} ${BLOCK_X} ${BLOCK_Y}
+    echo "Direct execution finished."
+
+    # Run nsys profile for the current configuration
+    echo "Running nsys profile..."
+    nsys profile --stats=true -o "${BASE_FILENAME}" --force-overwrite true ${EXECUTABLE} ${BLOCK_X} ${BLOCK_Y} &> "${BASE_FILENAME}.log"
+    if [ $? -ne 0 ]; then
+        echo "Warning: nsys profiling failed for ${BLOCK_X}x${BLOCK_Y}. Check ${BASE_FILENAME}.log"
+    else
+        echo "nsys report generated: ${BASE_FILENAME}.nsys-rep"
+    fi
+    echo ""
+
+done
+
+echo "All profiling runs completed. Results in ${OUTPUT_DIR}"
