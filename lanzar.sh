@@ -23,20 +23,16 @@ EXECUTABLE="./ej1_part1" # Assuming the executable is named ej1_part1
 # Define block sizes to test (pairs of BlockX BlockY)
 # Ensure BlockX * BlockY <= 1024
 declare -a BLOCK_SIZES=(
+    "128 128"
+    "64 64"
     "32 32"
-    "16 64"
-    "64 16"
-    "8 128"
-    "128 8"
-    "32 8"
-    "8 32"
     "16 16"
-    "32 16"
-    "16 32"
+    "8 8"
+    "4 4"
 )
 
 # Prepare output folder
-OUTPUT_DIR="output_1024x1024" # Keep fixed name or adjust as needed
+OUTPUT_DIR="output" # Keep fixed name or adjust as needed
 mkdir -p "${OUTPUT_DIR}"
 
 # --- Build Step ---
