@@ -71,6 +71,8 @@ int main(int argc, char* argv[]) {
     // 1) Parse arguments
     int rows = 1024, cols = 1024;
     int blockX = 32, blockY = 32; // Default block dimensions
+    std::vector<int> h_in(rows * cols);
+    std::vector<int> h_out(rows * cols);
     if (argc == 3) {
         rows = std::atoi(argv[1]);
         cols = std::atoi(argv[2]);
@@ -100,11 +102,9 @@ int main(int argc, char* argv[]) {
 
     // 2) Allocate & init host arrays
     nvtxRangePushA("Init in");
-    int h_in[MAX_ROWS][MAX_COLS];
-    int h_out[MAX_ROWS][MAX_COLS];
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
-            h_in[i][j] = i * cols + j;
+            h_in[i * cols + j] = i * cols + j;
         }
     }
     nvtxRangePop();
@@ -112,16 +112,27 @@ int main(int argc, char* argv[]) {
     // 3) Allocate device arrays
     int *d_in = nullptr, *d_out = nullptr;
     nvtxRangePushA("Malloc in");
-    CUDA_CHK(cudaMalloc(&d_in, bytes));
+    std::cout << "[DEBUG] Allocating d_in with cudaMalloc, bytes: " << bytes << std::endl;
+    cudaError_t err_in = cudaMalloc(&d_in,  bytes);
+    if (err_in != cudaSuccess) {
+        std::cerr << "[ERROR] cudaMalloc for d_in failed: " << cudaGetErrorString(err_in) << std::endl;
+        return 1;
+    }
     nvtxRangePop();
-
     nvtxRangePushA("Malloc out");
-    CUDA_CHK(cudaMalloc(&d_out, bytes));
+    std::cout << "[DEBUG] Allocating d_out with cudaMalloc, bytes: " << bytes << std::endl;
+    cudaError_t err_out = cudaMalloc(&d_out, bytes);
+    if (err_out != cudaSuccess) {
+        std::cerr << "[ERROR] cudaMalloc for d_out failed: " << cudaGetErrorString(err_out) << std::endl;
+        cudaFree(d_in);
+        return 1;
+    }
     nvtxRangePop();
 
     nvtxRangePushA("H2D memcpy");
-    CUDA_CHK(cudaMemcpy(d_in, &h_in[0][0], bytes, cudaMemcpyHostToDevice));
+        CUDA_CHK(cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice));
     nvtxRangePop();
+
 
     // 4) Kernel launch config
     dim3 blockDim(blockX, blockY); // Use parsed block dimensions
@@ -145,14 +156,14 @@ int main(int argc, char* argv[]) {
 
     // 6) Copy back & verify correctness
     nvtxRangePushA("D2H memcpy");
-        CUDA_CHK(cudaMemcpy(&h_out[0][0], d_out, bytes, cudaMemcpyDeviceToHost));
+        CUDA_CHK(cudaMemcpy(h_out.data(), d_out, bytes, cudaMemcpyDeviceToHost));
     nvtxRangePop();
 
     bool ok = true;
     for (int r = 0; r < rows && ok; ++r) {
         for (int c = 0; c < cols; ++c) {
-            if (h_out[c][r] != h_in[r][c]) {
-                std::cerr << "FAILED at (" << r << "," << c << "): " << h_out[c][r] << " != " << h_in[r][c] << "\n";
+            if (h_out[c * rows + r] != h_in[r * cols + c]) {
+                std::cerr << "FAILED at (" << r << "," << c << "): " << h_out[c * rows + r] << " != " << h_in[r * cols + c] << "\n";
                 ok = false;
                 break;
             }

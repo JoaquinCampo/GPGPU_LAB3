@@ -16,7 +16,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <nvtx3/nvtoolsext.h>
+#include <nvtx3/nvToolsExt.h>
 
 
 #define max_dim 4096

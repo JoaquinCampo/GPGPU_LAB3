@@ -28,12 +28,12 @@ mkdir -p "${NSYS_OUTPUT}"
 
 # Run nvprof for profiling
 echo "=== Nsight Profiling (nvprof) ==="
-nvprof --metrics all --o "${NVPROF_OUTPUT}/run_${ROWS}x${COLS}.nvprof" -f ./ej1_part1 "${ROWS}" "${COLS}"
+nvprof --metrics all -o "${NVPROF_OUTPUT}/run_${ROWS}x${COLS}.nvprof" -f ./ej2_part1 "${ROWS}" "${COLS}"
 echo "Done. Files in ${OUTPUT_DIR}:"
 
 # Run just once for now
 echo "=== Single Run ==="
-nsys profile --output "${NSYS_OUTPUT}/run_${ROWS}x${COLS}.nsys-rep" --stats=true ./ej1_part1 "${ROWS}" "${COLS}"
+nsys profile --output "${NSYS_OUTPUT}/run_${ROWS}x${COLS}.nsys-rep" --stats=true ./ej2_part1 "${ROWS}" "${COLS}"
 echo "Done"
 
 echo "Done"
