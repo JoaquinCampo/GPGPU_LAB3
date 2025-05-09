@@ -16,17 +16,17 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <nvtx3/nvtoolsext.h>
+#include <nvtx3/nvToolsExt.h>
 
 
-#define max_dim 4096
+#define MAX_DIM 4096
 
-#define cuda_chk(ans) do { gpuassert((ans), __file__, __line__); } while(0)
-inline void gpuassert(cudaerror_t code, const char *file, int line, bool abort=true)
+#define CUDA_CHK(ans) do { gpuAssert((ans), __FILE__, __LINE__); } while(0)
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
 {
-   if (code != cudasuccess)
+   if (code != cudaSuccess)
    {
-      fprintf(stderr,"gpuassert: %s %s %d\n", cudageterrorstring(code), file, line);
+      fprintf(stderr,"gpuAssert: %s %s %d\n", cudaGetErrorString(code), file, line);
       if (abort) exit(code);
    }
 }
@@ -44,10 +44,10 @@ inline void gpuassert(cudaerror_t code, const char *file, int line, bool abort=t
  * @param rows  number of rows in the input matrix.
  * @param cols  number of columns in the input matrix.
  */
-__global__ void transposenaive(const int *in, int *out, int rows, int cols)
+__global__ void transposeNaive(const int *in, int *out, int rows, int cols)
 {
-    int row = blockidx.y * blockdim.y + threadidx.y;
-    int col = blockidx.x * blockdim.x + threadidx.x;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
     if (row < rows && col < cols)
     {
         // transpose element
@@ -83,6 +83,10 @@ int main(int argc, char *argv[]) {
     // 1) Parse arguments
     int rows = 1024, cols = 1024;
     int blockX = 32, blockY = 32; // Default block dimensions
+    // Use 1D vectors for host arrays to avoid stack overflow
+    // A REVISAR - CHEQUEAR SI ESTA IMPLEMENTACION DE MATRICES ESTA BIEN, O SI TENEMOS QUE USAR [] []. CUANDO USO [] [] ME TIRA ERROR DE EJECUCIÓN POR ALOCACIÓN DE MEMORIA.
+    std::vector<int> h_in(rows * cols);
+    std::vector<int> h_out(rows * cols);
     if (argc == 3) {
         rows = std::atoi(argv[1]);
         cols = std::atoi(argv[2]);
@@ -95,6 +99,7 @@ int main(int argc, char *argv[]) {
         std::cerr << "Usage: " << argv[0] << " [rows cols [blockX blockY]]\n";
         return 1;
     }
+
     if (rows > MAX_DIM || cols > MAX_DIM) {
         std::cerr << "Error: dims must be ≤ " << MAX_DIM << "\n";
         return 1;
@@ -104,33 +109,45 @@ int main(int argc, char *argv[]) {
                    << "). Product must be > 0 and <= 1024.\n";
          return 1;
     }
+
     std::cout << "Matrix size: " << rows << " x " << cols
               << ", Block size: " << blockX << " x " << blockY << "\n";
 
-    size_t size = size_t(rows) * cols;
+    size_t size = static_cast<size_t>(rows) * cols;
     size_t bytes = size * sizeof(int);
 
     // 2) Allocate & init host arrays
-    std::vector<int> h_in(size), h_out(size);
     nvtxRangePushA("Init in");
-    for (int i = 0; i < rows; ++i)
-        for (int j = 0; j < cols; ++j)
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
             h_in[i * cols + j] = i * cols + j;
+        }
+    }
     nvtxRangePop();
 
     // 3) Allocate device arrays
     int *d_in = nullptr, *d_out = nullptr;
     nvtxRangePushA("Malloc in");
-        CUDA_CHK(cudaMalloc(&d_in,  bytes));
+    std::cout << "[DEBUG] Allocating d_in with cudaMalloc, bytes: " << bytes << std::endl;
+    cudaError_t err_in = cudaMalloc(&d_in,  bytes);
+    if (err_in != cudaSuccess) {
+        std::cerr << "[ERROR] cudaMalloc for d_in failed: " << cudaGetErrorString(err_in) << std::endl;
+        return 1;
+    }
     nvtxRangePop();
     nvtxRangePushA("Malloc out");
-        CUDA_CHK(cudaMalloc(&d_out, bytes));
+    std::cout << "[DEBUG] Allocating d_out with cudaMalloc, bytes: " << bytes << std::endl;
+    cudaError_t err_out = cudaMalloc(&d_out, bytes);
+    if (err_out != cudaSuccess) {
+        std::cerr << "[ERROR] cudaMalloc for d_out failed: " << cudaGetErrorString(err_out) << std::endl;
+        cudaFree(d_in);
+        return 1;
+    }
     nvtxRangePop();
 
     nvtxRangePushA("H2D memcpy");
         CUDA_CHK(cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice));
     nvtxRangePop();
-
 
     // 4) Kernel launch config
     dim3 blockDim(blockX, blockY); // Use parsed block dimensions
@@ -151,21 +168,19 @@ int main(int argc, char *argv[]) {
         CUDA_CHK(cudaDeviceSynchronize());
     nvtxRangePop();
 
-
     // 6) Copy back & verify correctness
     nvtxRangePushA("D2H memcpy");
         CUDA_CHK(cudaMemcpy(h_out.data(), d_out, bytes, cudaMemcpyDeviceToHost));
     nvtxRangePop();
 
     bool ok = true;
-    for (int i = 0; i < rows && ok; ++i) {
-      for (int j = 0; j < cols; ++j) {
-        int expected = i * cols + j;
-        if (h_out[j * rows + i] != expected) {
-          std::cerr << "FAILED at ("<<i<<","<<j<<"): "
-                    << h_out[j * rows + i]
-                    << " != " << expected << "\n";
-          ok = false; break;
+    for (int r = 0; r < rows && ok; ++r) {
+      for (int c = 0; c < cols; ++c) {
+        int expected = r * cols + c;
+        if (h_out[c * rows + r] != expected) {
+            std::cerr << "FAILED at ("<<r<<","<<c<<"): " << h_out[c * rows + r] << " != " << expected << "\n";
+            ok = false;
+            break;
         }
       }
     }
