@@ -19,14 +19,14 @@
 #include <nvtx3/nvToolsExt.h>
 
 
-#define max_dim 4096
+#define MAX_DIM 4096
 
-#define cuda_chk(ans) do { gpuassert((ans), __file__, __line__); } while(0)
-inline void gpuassert(cudaerror_t code, const char *file, int line, bool abort=true)
+#define CUDA_CHK(ans) do { gpuAssert((ans), __FILE__, __LINE__); } while(0)
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
 {
-   if (code != cudasuccess)
+   if (code != cudaSuccess)
    {
-      fprintf(stderr,"gpuassert: %s %s %d\n", cudageterrorstring(code), file, line);
+      fprintf(stderr,"gpuAssert: %s %s %d\n", cudaGetErrorString(code), file, line);
       if (abort) exit(code);
    }
 }
@@ -44,10 +44,10 @@ inline void gpuassert(cudaerror_t code, const char *file, int line, bool abort=t
  * @param rows  number of rows in the input matrix.
  * @param cols  number of columns in the input matrix.
  */
-__global__ void transposenaive(const int *in, int *out, int rows, int cols)
+__global__ void transposeNaive(const int *in, int *out, int rows, int cols)
 {
-    int row = blockidx.y * blockdim.y + threadidx.y;
-    int col = blockidx.x * blockdim.x + threadidx.x;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
     if (row < rows && col < cols)
     {
         // transpose element
