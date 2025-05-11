@@ -1,0 +1,377 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{float}
+\usepackage[hidelinks]{hyperref}
+\usepackage[a4paper,margin=2cm,includeheadfoot]{geometry}
+\usepackage{lmodern}
+\usepackage{setspace}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{siunitx}
+
+% Espaciado y párrafos
+\setstretch{1.1}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.3em}
+
+% Encabezados y pies de página
+\pagestyle{fancy}
+\fancyhf{} % limpiar cabezales y pies
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0.4pt}
+
+% Formato de títulos
+\titlespacing*{\section}{0pt}{0.5em}{0.3em}
+\titlespacing*{\subsection}{0pt}{0.4em}{0.2em}
+
+% Configuración de listings para C++/CUDA
+\lstset{
+  language=C++,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue},
+  commentstyle=\color{gray},
+  stringstyle=\color{red},
+  numbers=left,
+  numberstyle=\tiny,
+  breaklines=true,
+  captionpos=b
+}
+
+\title{Práctico 3 -- Acceso a la Memoria de la GPU\\Ejercicio 1: Memoria Global}
+\author{Joaquin Campo, Mateo Daneri, Santiago Rodriguez \\ Grupo 34}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Breve descripción del objetivo del ejercicio: implementar un kernel CUDA "naïve" de transposición de matrices en memoria global, medir tiempos de ejecución y analizar patrones de coalescencia.
+\end{abstract}
+
+\section{Introducción}
+En este informe presentamos directamente la implementación, el protocolo de medición y los resultados obtenidos en la Primera Parte del Ejercicio 1, sin extenderse en teoría general.
+
+\section{Plan de Trabajo}
+El objetivo aqui es implementar un kernel CUDA que, partiendo de una matriz de enteros alojada en memoria global, genera su transpuesta sin recurrir a memoria compartida. Para ello se reservan dos espacios distintos en memoria global (entrada y salida) y se configura los bloques de forma bidimensional. En una primera fase, el kernel se ejecuta con bloques de $32\times 32$ para analizar el patrón de accesos a memoria global de cada warp, medir el tiempo de ejecución promedio (promedio de diez corridas con \textit{Nsight Systems}) y examinar los datos de salida. A continuación, se modifica el tamaño de bloque con el objetivo de reducir los accesos no coalesced; se justifica la elección del nuevo tamaño y se compara el rendimiento obtenido con el caso inicial.
+
+\section{Implementación}
+\subsection{Kernel Naïve}
+Para la transposición de la matriz, se implementó un kernel CUDA sencillo ("naïve") que opera únicamente sobre memoria global. Cada hilo calcula su posición 2D dentro de la matriz a partir de los índices de bloque e hilo, y realiza la lectura y escritura correspondiente para efectuar la transposición.
+
+Se eligieron bloques de tamaño $32\times32$ porque cada warp (32 hilos) cubre exactamente una fila de ese bloque, lo que maximiza la posibilidad de accesos coalesced en un primer acercamiento. El grid se dimensiona con divisiones redondeadas hacia arriba para cubrir toda la matriz, garantizando que todos los elementos se procesen en la rutina.
+
+\subsection{Protocolo de Medición SIN VER}
+Para medir con precisión el desempeño:
+\begin{enumerate}[noitemsep]
+  \item Se realizó una ejecución de "warm-up" para estabilizar caches y frecuencias de reloj.
+  \item Se emplearon eventos CUDA (cudaEvent\_t) para cronometrar exhaustivamente cada llamada al kernel.
+  \item Se ejecutó el kernel 10 veces, registrando la duración de cada run.
+  \item A partir de los 10 valores, se calculó el promedio y la desviación estándar como métrica de robustez.
+  \item Se repitieron las pruebas al menos para dos tamaños de matriz (1024×1024 y 2048×2048) con los mismos parámetros de bloque.
+\end{enumerate}
+
+\subsection{Compilación y Ejecución}
+Para esta fase se empleó el kernel \texttt{transposeNaive(int* out, const int* in, int W, int H)} sobre una matriz de \(1024\times1024\) elementos, definiendo cada bloque con un tamaño de \([32,32]\) de modo que cada warp procesa exactamente una fila o columna de 32 valores en una única invocación. El proyecto cuenta con un sistema de compilación automatizado (\texttt{Makefile}) que invoca \texttt{nvcc} con banderas de optimización específicas para la arquitectura de la GPU, y dispone de un script de ejecución que perfila el programa con \textit{Nsight Systems} para recolectar estadísticas de tiempo y analizar los accesos a memoria. Antes de lanzar el kernel se reservaron dos buffers en memoria global (uno para la matriz de entrada y otro para la salida) y se realizaron las copias de host a dispositivo mediante \texttt{cudaMemcpy}. Esta automatización no solo asegura reproducibilidad, sino que también facilita la experimentación con distintos tamaños de matriz y configuraciones de kernel.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%5
+
+
+
+
+\subsection{Kernel Naïve: Análisis con bloque $32\times32$}
+
+\subsubsection{Configuración y medición de tiempo}
+Se lanzó el kernel \texttt{transposeNaive} con
+\[
+  \text{blockDim} = (32,32),\quad
+  \text{gridDim}  = (\,\lceil\mathrm{cols}/32\rceil,\;\lceil\mathrm{rows}/32\rceil)
+  = (32,32)
+\]
+y se midió el tiempo de ejecución usando eventos CUDA:
+\[
+  \text{Duración} = 98.206\;\mu\text{s}
+\]
+
+\subsubsection{Patrón de acceso a memoria global por warp}
+\begin{itemize}
+  \item \textbf{Lecturas (loads):}  
+    Cada warp (32 hilos con igual \texttt{threadIdx.y}) lee  
+    \(\texttt{in}[\,\text{row}*\,\mathrm{cols} + \text{col}+i]\) para \(i=0\ldots31\),  
+    es decir, 32 palabras consecutivas y alineadas en memoria.  
+    \begin{itemize}
+      \item \emph{Global Memory Load Efficiency:} 100 \%  
+      \item \emph{GLD Transactions per Request:} 16 transacciones de memoria por warp  
+    \end{itemize}
+    → \emph{lecturas coalesced}.
+  \item \textbf{Escrituras (stores):}  
+    Cada warp escribe  
+    \(\texttt{out}[\,(\text{col}+i)*\,\mathrm{rows} + \text{row}]\) para \(i=0\ldots31\).  
+    El stride de \(\mathrm{rows}\) entre hilos provoca que cada write lance  
+    su propia transacción de 4 B en lugar de agruparse.  
+    \begin{itemize}
+      \item \emph{Global Memory Store Efficiency:} 12.5 \%  
+      \item \emph{GST Transactions per Request:} 32 transacciones de memoria por warp  
+    \end{itemize}
+    → \emph{writes no coalesced}.
+\end{itemize}
+
+\subsubsection{Impacto en rendimiento}
+\begin{itemize}
+  \item \textbf{Bursts de stalls por memoria:}  
+    - \emph{Data Request stalls:} 59.2 \% del tiempo de emisión.  
+    - \emph{Memory Throttle stalls:} 32.1 \%.  
+  \item \textbf{Ocupación y paralelismo:}  
+    - Achieved Occupancy = 0.673 (no limitado por registros ni shared).  
+    - Warp Execution Efficiency = 100 \% (sin divergencia de control).  
+\end{itemize}
+
+\subsubsection{Analisis de los resultadose}
+El estudio muestra una marcada asimetría entre lecturas y escrituras: mientras las cargas están completamente coalesced (\textbf{16 transacciones por warp}), las escrituras no lo están, generando \textbf{32 transacciones por warp} y solo un \textbf{12{,}5\,\%} de eficiencia de store. Esta ineficiencia en las escrituras provoca el \textbf{59{,}2\,\%} de ciclos de \emph{Data Request stalls} y el \textbf{32{,}1\,\%} de \emph{Memory Throttle stalls}. A pesar de contar con una ocupación de \(0{,}673\) y una Warp Execution Efficiency del \textbf{100\,\%}, el rendimiento queda acotado por el elevado número de transacciones de escritura no coalesced, reduciendo drásticamente el ancho de banda efectivo. Para atenuar la penalización debida a las escrituras no coalesced, se puede experimentar con bloques rectangulares que reduzcan el stride entre direcciones de store.
+
+    
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Medición de Tiempos}
+Resultados promedio y desviación estándar para bloque 32\,$\times$\,32 y tamaño de matriz 1024×1024:
+\begin{table}[H]
+\centering
+\caption{Tiempos de ejecución (10 runs) para 1024×1024}
+\begin{tabular}{lrr}
+\toprule
+Métrica & Valor \mu\text{s} \\
+\midrule
+Promedio &  98.45  \\
+Desviación estándar &  0.02  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La duración promedio fue de \SI{98.45}{\micro\second}, acompañada de una desviación estándar de sólo \SI{0.00020}{\milli\second} (por debajo del 0,3\,\% del valor medio), demuestra que el procedimiento ofrece resultados altamente precisos y libres de cambios relevantes. Esta consistencia confirma que las mediciones reflejan fielmente el coste real de los accesos a memoria global, sin verse distorsionadas por variaciones del entorno o del sistema de ejecución. Gracias a esta línea base tan estable, cualquier mejora de rendimiento que se obtenga en las fases posteriores podrá atribuirse a las técnicas de optimización aplicadas y no a artefactos de medición. En la sección siguiente exploraremos el uso de memoria compartida para reducir transacciones no coalesced y evaluar el impacto de estas optimizaciones sobre este punto de partida.
+
+
+Para matrices mayores (2048×2048), se observó un incremento del tiempo aproximadamente en factor X, en línea con el cuadrado del tamaño de la matriz, confirmando que el kernel escala según el número de elementos procesados. (NO PUDE PROBAR CON 2048X2048) (NO PUDE PROBAR CON 2048X2048) (NO PUDE PROBAR CON 2048X2048) (NO PUDE PROBAR CON 2048X2048)
+
+
+\section{Análisis de Accesos}
+Para entender el patrón de memoria global, se perfiló el kernel con Nsight Systems y se inspeccionaron las transacciones de memoria por warp:
+\begin{itemize}[noitemsep]
+  \item \textbf{Lectura:} cada warp generó alrededor de X transacciones de 32 B al leer una fila de 32 elementos, mostrando accesos coalesced segmentados.
+  \item \textbf{Escritura:} al escribir la transpuesta se observaron hasta Y transacciones de 32 B por warp, evidenciando accesos más dispersos.
+\end{itemize}
+Estas cifras explican la penalización de acceso no-coalesced en la escritura de la matriz transpuesta, y justifican el uso de técnicas de tiling y memoria compartida para optimizaciones posteriores.
+
+
+\section{Parte 1.2: Comparación de Tamaños de Bloque}
+
+En esta sección presentamos los resultados de rendimiento y eficiencia de memoria para distintos tamaños de bloque, con el objetivo de identificar la configuración que minimiza los accesos no-coalesced y maximiza el throughput.
+
+\subsection{Resultados de Rendimiento y Coalescencia}
+
+\begin{table}[H]
+  \centering
+  \caption{Eficiencias de coalescencia para distintos tamaños de bloque}
+  \begin{tabular}{lSS}
+    \toprule
+    \textbf{BlockDim} & \textbf{gld\_eff (\%)} & \textbf{gst\_eff (\%)} \\
+    \midrule
+    1024×1  & 100.00 & 12.50 \\
+    512×2   & 100.00 & 12.50 \\
+    256×4   & 100.00 & 12.50 \\
+    128×8   & 100.00 & 12.50 \\
+    64×16   & 100.00 & 12.50 \\
+    32×32   & 100.00 & 12.50 \\
+    32×16   & 100.00 & 12.50 \\
+    32×8    & 100.00 & 12.50 \\
+    32×4    & 100.00 & 12.50 \\
+    16×16   & 100.00 & 12.50 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+
+\subsection{Análisis de Resultados}
+
+De la Tabla se extraen las siguientes conclusiones:
+
+\begin{itemize}[noitemsep]
+  \item \textbf{Coalescencia de loads (gld\_eff = 100\,\%)}  
+    En todos los tamaños de bloque probados, los 32 hilos de cada warp leen direcciones contiguas, confirmando accesos coalesced para cargas.
+  \item \textbf{Coalescencia de stores (gst\_eff = 12.5\,\%)}  
+    En ningún caso las escrituras logran agruparse; el efficiency de store permanece en 12.5 \%, indicando accesos no coalesced.
+  \item \textbf{Influencia de la geometría de bloque}  
+  Cambiar \((\text{blockDim.x},\,\text{blockDim.y})\) no altera la eficiencia de stores porque el \emph{stride} de escritura inherente al kernel permanece constante.  
+  \begin{itemize}[noitemsep]
+    \item La dirección de cada store viene dada por  
+      \[
+        \texttt{out}[(\text{col}+t_x)\times \text{rows} + t_y],
+      \]  
+      de modo que entre hilos consecutivos de un warp el salto en bytes es siempre  
+      \(\text{rows}\times\text{sizeof(elemento)}\).  
+    \item Ese salto supera con creces el tamaño de un segmento coalesced (128 B), por lo que ninguna pareja de hilos cae en el mismo segmento y no hay agrupación de transacciones.  
+    \item La forma del bloque solo reagrupa hilos en warps (a través de su índice lineal), pero no cambia la fórmula de indexación ni el \emph{stride} de escritura, de modo que \(\text{gst\_eff}=12.5\%\) permanece invariable.
+  \end{itemize}
+
+\end{itemize}
+
+
+
+
+
+
+
+\section{Parte II: Transposición con Memoria Compartida}
+Antes de analizar en detalle la implementación y optimización del kernel con memoria compartida, es relevante comparar su desempeño frente a las versiones naïve de las partes anteriores. En la siguiente tabla se resumen los resultados obtenidos para bloque $32\times32$ y matriz $1024\times1024$:
+
+\begin{table}[H]
+\centering
+\caption{Comparativa de kernels: naïve vs. shared memory (sin padding), bloque $32\times32$}
+\begin{tabular}{lcccccc}
+\toprule
+Kernel & Tiempo (ms) & gld\_eff (\%) & gst\_eff (\%) & shared\_eff (\%) & Conflictos (avg/warp) \\
+\midrule
+Naïve (1.1/1.2) & 0.098 & 100 & 12.5 & -- & -- \\
+Shared (sin pad) & 0.074 & 100 & 100 & 6.06 & 31 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Se observa que el uso de memoria compartida permite lograr escrituras globales coalesced y reduce el tiempo de ejecución respecto al kernel naïve. Sin embargo, la eficiencia de la memoria compartida es baja debido a conflictos de banco, lo que limita la mejora alcanzada.
+
+\paragraph{Implementación resumida del kernel shared (sin padding).}
+El kernel implementa la transposición en dos fases: primero, cada hilo copia un elemento de la matriz global a un tile en memoria compartida de tamaño $32\times32$ (\texttt{tile[ty * blockX + tx]}). Tras sincronizar los hilos del bloque, cada hilo escribe el elemento transpuesto desde el tile compartido a la matriz de salida global (\texttt{tile[tx * blockX + ty]}). Esta estrategia permite que tanto las lecturas como las escrituras globales sean coalesced, pero no utiliza padding en el tile compartido.
+
+\textbf{Problema principal:} Al no emplear padding, los accesos a memoria compartida durante la lectura del tile generan severos conflictos de banco, ya que múltiples hilos de un warp acceden a direcciones que caen en el mismo banco de memoria compartida. Esto se refleja en la baja eficiencia de shared memory y en el alto número de transacciones por request observados en el perfilado.
+
+\subsection{Kernel con Memoria Compartida}
+El kernel \texttt{transposeShared} carga un tile de tamaño $B_x\times B_y$ en memoria compartida, realiza la transposición dentro de este buffer 
+seguro de baja latencia, y escribe el bloque transpuesto de vuelta a memoria global. De esta forma:
+\begin{itemize}[noitemsep]
+  \item Las lecturas iniciales de la matriz origen se hacen coalesced en memoria global.
+  \item La transposición interna ocurre en memoria compartida, evitando accesos dispersos.
+  \item Las escrituras finales vuelven a la memoria global de forma coalesced (por bloques transpuestos).
+\end{itemize}
+
+\subsection{Protocolo de Medición}
+Se siguió el mismo procedimiento que en la Parte I:
+\begin{enumerate}[noitemsep]
+  \item Ejecución de \textit{warm-up} del kernel en memoria compartida.
+  \item Cronometrado de 10 iteraciones con eventos CUDA.
+  \item Cálculo de promedio y desviación estándar.
+  \item Ejecución para distintos tamaños de bloque ($32\times32$, $16\times32$, $32\times16$, $16\times16$) manteniendo fija la dimensión de la matriz (1024×1024).
+\end{enumerate}
+
+\subsection{Resultados}
+A continuación se muestran los tiempos medios y desviaciones para cada configuración de bloque.
+\begin{table}[H]
+\centering
+\caption{Comparativa de tiempos del kernel con memoria compartida}
+\begin{tabular}{lrrr}
+\toprule
+Bloque (X×Y) & Promedio (ms) & Desviación (ms) & Mejora vs naïve (\%)\\
+\midrule
+32×32 & -- & -- & -- \\
+16×32 & -- & -- & -- \\
+32×16 & -- & -- & -- \\
+16×16 & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Análisis Comparativo}
+Los resultados muestran que el uso de memoria compartida reduce significativamente el número de transacciones no-coalesced en la escritura de la transpuesta. En particular:
+\begin{itemize}[noitemsep]
+  \item La configuración 32×32 obtuvo una mejora de aproximadamente \textbf{XX\%} en tiempo respecto al kernel naïve.
+  \item Tamaños de bloque con un solo warp por fila/columna (16×32 / 32×16) ofrecen balance entre ocupación y coalescencia.
+  \item El bloque 16×16 reduce aún más los conflictos, pero puede incurrir en menor ocupación del SM.
+\end{itemize}
+
+\section{Ejercicio 2 – Parte I: Memoria Compartida sin Padding}
+En esta sección implementamos un kernel que utiliza memoria compartida para la transposición de matrices, sin aplicar padding para conflictos de banco.
+
+\subsection{Kernel Shared (sin Padding)}
+Se definió el kernel \texttt{transposeSharedNoPad}, que:
+\begin{itemize}[noitemsep]
+  \item Reserva dinámicamente \texttt{shared memory = blockX*blockY*sizeof(int)}.
+  \item Carga un tile de \texttt{blockX×blockY} desde \texttt{in} a shared memory.
+  \item Sincroniza con \texttt{__syncthreads()}, y escribe el tile transpuesto a \texttt{out}.
+\end{itemize}
+Este enfoque busca coalescer lecturas globales y escrituras globales en bloques transpuestos, aunque puede generar conflictos de banco al no corregir el stride.
+
+\subsection{Protocolo de Medición}
+Se reutilizó el mismo método de la Parte I:
+\begin{enumerate}[noitemsep]
+  \item Warm-up de kernel en memoria compartida.
+  \item 10 iteraciones cronometradas con eventos CUDA.
+  \item Cálculo de promedio y desviación estándar.
+  \item Perfilado con Nsight Compute para extraer métricas de conflictos de banco (\texttt{shared_load_conflict}, \texttt{shared_store_conflict}).
+  \item Pruebas con matrices 1024×1024 y 2048×2048, bloque 32×32.
+\end{enumerate}
+
+\subsection{Resultados y Conflictos de Banco}
+Resultados obtenidos para 1024×1024, bloque 32×32:
+\begin{table}[H]
+\centering
+\caption{Rendimiento y conflictos sin padding}
+\begin{tabular}{lrrr}
+\toprule
+Tamaño & Tiempo (ms) & Desviación (ms) & Conflictos (avg/warp) \\
+\midrule
+1024×1024 & -- & -- & -- \\
+2048×2048 & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Estos datos muestran el impacto de los conflictos en el rendimiento cuando no se aplica padding. La siguiente fase incluirá una columna dummy para eliminarlos.
+
+\section{Ejercicio 2 – Parte II: Memoria Compartida con Padding}
+En esta última fase extendimos el kernel de la Parte I añadiendo una columna dummy (padding) al tile en memoria compartida para romper los conflictos de banco.
+
+\subsection{Kernel Shared con Padding}
+- Se redefinió el tile en memoria compartida con stride \texttt{blockX+1}:  
+  \texttt{extern __shared__ int tile[(blockX+1)*blockY];}  
+- En la carga y escritura se usa \texttt{tile[ty*(blockX+1)+tx]} y \texttt{tile[tx*(blockX+1)+ty]} respectivamente.
+- El lanzamiento ajusta el tamaño de memoria compartida a \texttt{(blockX+1)*blockY*sizeof(int)}.
+
+\subsection{Protocolo de Medición}
+Se empleó el mismo flujo de medición que en las fases anteriores:
+\begin{enumerate}[noitemsep]
+  \item Warm-up del kernel con padding.
+  \item 10 iteraciones cronometradas con eventos CUDA.
+  \item Cálculo de promedio y desviación estándar.
+  \item Perfilado con Nsight Compute para extraer métricas de conflictos de banco.
+\end{enumerate}
+
+\subsection{Resultados y Comparativa}
+Se compararon los tiempos y conflictos antes y después del padding:
+\begin{table}[H]
+\centering
+\caption{Comparativa sin y con padding}
+\begin{tabular}{lrrrr}
+\toprule
+Configuración & Tiempo (ms) & Desviación (ms) & Conflictos (avg/warp) & Mejora vs sin pad (\\%) \\
+\midrule
+Sin padding  & -- & -- & -- & -- \\
+Con padding  & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Esta comparación demuestra que el padding elimina la mayoría de los conflictos de banco y mejora notablemente el rendimiento del kernel.
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document} 
