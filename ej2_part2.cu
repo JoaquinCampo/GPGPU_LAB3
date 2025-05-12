@@ -92,7 +92,9 @@ int main(int argc, char* argv[]) {
         blockY = std::atoi(argv[4]);
     }
     if (rows > MAX_ROWS || cols > MAX_COLS) {
-        std::cerr << "Error: Matrix size exceeds MAX_ROWS or MAX_COLS." << std::endl;
+        std::cerr << "Error: Matrix size exceeds MAX_ROWS or MAX_COLS ("
+                  << MAX_ROWS << "x" << MAX_COLS << "). Requested: "
+                  << rows << "x" << cols << std::endl;
         return 1;
     }
     std::cout << "Ej2 Part2: Matrix " << rows << "x" << cols
@@ -101,13 +103,16 @@ int main(int argc, char* argv[]) {
     size_t size = static_cast<size_t>(rows) * cols;
     size_t bytes = size * sizeof(int);
 
-    int h_in[MAX_ROWS][MAX_COLS];
-    int h_out[MAX_ROWS][MAX_COLS];
+    std::vector<int> h_in(size); // Allocate on heap
+    std::vector<int> h_out(size); // Allocate on heap
+
+    nvtxRangePushA("Init host in");
     for (int i = 0; i < rows; ++i) {
         for (int j = 0; j < cols; ++j) {
-            h_in[i][j] = i * cols + j;
+            h_in[i * cols + j] = i * cols + j; // 1D indexing
         }
     }
+    nvtxRangePop();
 
     // Allocate device buffers
     int *d_in = nullptr, *d_out = nullptr;
@@ -120,7 +125,7 @@ int main(int argc, char* argv[]) {
     nvtxRangePop();
 
     nvtxRangePushA("H2D memcpy");
-    CUDA_CHK(cudaMemcpy(d_in, &h_in[0][0], bytes, cudaMemcpyHostToDevice));
+    CUDA_CHK(cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice)); // Use .data()
     nvtxRangePop();
 
     dim3 blockDim(blockX, blockY);
@@ -141,19 +146,23 @@ int main(int argc, char* argv[]) {
 
     // 6) Copy back & verify correctness
     nvtxRangePushA("D2H memcpy");
-    CUDA_CHK(cudaMemcpy(&h_out[0][0], d_out, bytes, cudaMemcpyDeviceToHost));
+    CUDA_CHK(cudaMemcpy(h_out.data(), d_out, bytes, cudaMemcpyDeviceToHost)); // Use .data()
     nvtxRangePop();
     bool ok = true;
-    for (int r = 0; r < rows && ok; ++r) {
-        for (int c = 0; c < cols; ++c) {
-            if (h_out[c][r] != h_in[r][c]) {
-                std::cerr << "FAILED at (" << r << "," << c << "): "
-                          << h_out[c][r] << " != " << h_in[r][c] << "\n";
+    nvtxRangePushA("Verify correctness");
+    for (int r = 0; r < rows && ok; ++r) { // r is original row
+        for (int c = 0; c < cols; ++c) { // c is original col
+            if (h_out[c * rows + r] != h_in[r * cols + c]) {
+                std::cerr << "FAILED at (original r=" << r << ", original c=" << c
+                          << " maps to transposed r=" << c << ", transposed c=" << r << "): "
+                          << "h_out[" << c * rows + r << "] = " << h_out[c * rows + r]
+                          << " != h_in[" << r * cols + c << "] = " << h_in[r * cols + c] << "\n";
                 ok = false;
                 break;
             }
         }
     }
+    nvtxRangePop();
     std::cout << (ok ? "Transpose OK\n" : "Transpose FAILED\n");
 
     // 7) Cleanup
