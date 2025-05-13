@@ -18,20 +18,10 @@ ROWS=${1:-1024}
 COLS=${2:-1024}
 
 declare -a BLOCK_SIZES=(
-  "1024 1"
-  "512 2"
-  "256 4"
-  "128 8"
-  "64 16"
   "32 32"
-  "16 64"
-  "8 128"
-  "4 256"
-  "2 512"
-  "1 1024"
 )
 
-OUTPUT_DIR="output/1_2"
+OUTPUT_DIR="output/1_1"
 NVPROF_LOG="${OUTPUT_DIR}/NVPROF_LOG"
 NSYS_REPORT="${OUTPUT_DIR}/NSYS_REPORT"
 NSYS_LOG="${OUTPUT_DIR}/NSYS_LOG"

@@ -1,0 +1,61 @@
+==690768== NVPROF is profiling process 690768, command: ./ej2_part1 1024 1024 32 32
+==690768== Profiling application: ./ej2_part1 1024 1024 32 32
+==690768== Profiling result:
+            Type  Time(%)      Time     Calls       Avg       Min       Max  Name
+ GPU activities:   51.89%  1.4580ms         1  1.4580ms  1.4580ms  1.4580ms  [CUDA memcpy HtoD]
+                   45.47%  1.2777ms         1  1.2777ms  1.2777ms  1.2777ms  [CUDA memcpy DtoH]
+                    2.64%  74.049us         1  74.049us  74.049us  74.049us  transposeSharedNoPad(int const *, int*, int, int)
+      API calls:   91.75%  40.246ms         2  20.123ms  63.118us  40.183ms  cudaMalloc
+                    5.17%  2.2697ms         2  1.1349ms  903.22us  1.3665ms  cudaMemcpy
+                    1.57%  686.90us         1  686.90us  686.90us  686.90us  cudaLaunchKernel
+                    0.95%  418.57us         2  209.29us  112.52us  306.06us  cudaFree
+                    0.35%  153.01us       114  1.3420us      58ns  67.705us  cuDeviceGetAttribute
+                    0.17%  74.132us         1  74.132us  74.132us  74.132us  cudaDeviceSynchronize
+                    0.02%  8.0750us         1  8.0750us  8.0750us  8.0750us  cuDeviceGetName
+                    0.01%  5.9630us         1  5.9630us  5.9630us  5.9630us  cuDeviceGetPCIBusId
+                    0.00%     724ns         2     362ns      86ns     638ns  cuDeviceGet
+                    0.00%     690ns         3     230ns      69ns     476ns  cuDeviceGetCount
+                    0.00%     435ns         1     435ns     435ns     435ns  cuModuleGetLoadingMode
+                    0.00%     297ns         1     297ns     297ns     297ns  cuDeviceTotalMem
+                    0.00%     291ns         1     291ns     291ns     291ns  cudaGetLastError
+                    0.00%     142ns         1     142ns     142ns     142ns  cuDeviceGetUuid
+
+==690768== NVTX result:
+==690768==   Thread "<unnamed>" (id = 2940710912)
+==690768==     Domain "<unnamed>"
+==690768==       Range "D2H memcpy"
+            Type  Time(%)      Time     Calls       Avg       Min       Max  Name
+          Range:  100.00%  1.3668ms         1  1.3668ms  1.3668ms  1.3668ms  D2H memcpy
+ GPU activities:  100.00%  1.2777ms         1  1.2777ms  1.2777ms  1.2777ms  [CUDA memcpy DtoH]
+      API calls:  100.00%  1.3665ms         1  1.3665ms  1.3665ms  1.3665ms  cudaMemcpy
+
+==690768==       Range "H2D memcpy"
+            Type  Time(%)      Time     Calls       Avg       Min       Max  Name
+          Range:  100.00%  908.60us         1  908.60us  908.60us  908.60us  H2D memcpy
+ GPU activities:  100.00%  1.4580ms         1  1.4580ms  1.4580ms  1.4580ms  [CUDA memcpy HtoD]
+      API calls:  100.00%  903.22us         1  903.22us  903.22us  903.22us  cudaMemcpy
+
+==690768==       Range "Init in"
+            Type  Time(%)      Time     Calls       Avg       Min       Max  Name
+          Range:  100.00%  311.87us         1  311.87us  311.87us  311.87us  Init in
+No kernels were profiled in this range.
+No API activities were profiled in this range.
+
+==690768==       Range "Kernel launch"
+            Type  Time(%)      Time     Calls       Avg       Min       Max  Name
+          Range:  100.00%  767.75us         1  767.75us  767.75us  767.75us  Kernel launch
+ GPU activities:  100.00%  74.049us         1  74.049us  74.049us  74.049us  transposeSharedNoPad(int const *, int*, int, int)
+      API calls:  100.00%  686.90us         1  686.90us  686.90us  686.90us  cudaLaunchKernel
+
+==690768==       Range "Malloc in"
+            Type  Time(%)      Time     Calls       Avg       Min       Max  Name
+          Range:  100.00%  61.563ms         1  61.563ms  61.563ms  61.563ms  Malloc in
+No kernels were profiled in this range.
+No API activities were profiled in this range.
+
+==690768==       Range "Malloc out"
+            Type  Time(%)      Time     Calls       Avg       Min       Max  Name
+          Range:  100.00%  64.145us         1  64.145us  64.145us  64.145us  Malloc out
+No kernels were profiled in this range.
+No API activities were profiled in this range.
+

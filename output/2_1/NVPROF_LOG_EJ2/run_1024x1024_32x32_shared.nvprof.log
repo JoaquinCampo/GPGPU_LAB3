@@ -1,0 +1,9 @@
+==690743== NVPROF is profiling process 690743, command: ./ej2_part1 1024 1024 32 32
+==690743== Some kernel(s) will be replayed on device 0 in order to collect all events/metrics.
+==690743== Profiling application: ./ej2_part1 1024 1024 32 32
+==690743== Profiling result:
+==690743== Metric result:
+Invocations                               Metric Name                        Metric Description         Min         Max         Avg
+Device "NVIDIA GeForce GTX 980 Ti (0)"
+    Kernel: transposeSharedNoPad(int const *, int*, int, int)
+          1                         shared_efficiency                  Shared Memory Efficiency       6.06%       6.06%       6.06%

@@ -1,125 +1,111 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include "cuda.h"
+#include <cuda_runtime.h>
+#include <iostream>
+#include <vector>
+#include <cmath>
+#include <nvtx3/nvToolsExt.h>
+
+#define MAX_DIM 4096
 
 #define CUDA_CHK(ans) do { gpuAssert((ans), __FILE__, __LINE__); } while(0)
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
 {
-   if (code != cudaSuccess) 
+   if (code != cudaSuccess)
    {
-      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      fprintf(stderr,"gpuAssert: %s %s %d\n", cudaGetErrorString(code), file, line);
       if (abort) exit(code);
    }
 }
 
-void read_file(const char*, int*);
-int get_text_length(const char * fname);
 
-#define A 15
-#define B 27
-#define M 256
-#define A_MMI_M -17
-
-__device__ int modulo(int a, int b){
-	int r = a % b;
-	r = (r < 0) ? r + b : r;
-	return r;
+__global__ void transposeNaive(const int *in, int *out, int rows, int cols)
+{
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row < rows && col < cols)
+    {
+        out[col * rows + row] = in[row * cols + col];
+    }
 }
 
-__global__ void decrypt_kernel(int *d_message, int length)
-{
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	if (i < length) {
-		int c = d_message[i];
-		int p = modulo(A_MMI_M * (c - B), M); // A^-1 * (c - B) mod M
-		d_message[i] = p;
-	}
-}
+int main(int argc, char *argv[]) {
+    int rows = 1024, cols = 1024;
+    int blockX = 32, blockY = 32; 
 
-int main(int argc, char *argv[])
-{
-	int *h_message;
-	int *d_message;
-	unsigned int size;
+    std::vector<int> h_in(rows * cols);
+    std::vector<int> h_out(rows * cols);
+    rows = std::atoi(argv[1]);
+    cols = std::atoi(argv[2]);
+    blockX = std::atoi(argv[3]);
+    blockY = std::atoi(argv[4]);
 
-	const char * fname;
+    std::cout << "Matrix size: " << rows << " x " << cols << ", Block size: " << blockX << " x " << blockY << "\n";
 
-	if (argc < 2) printf("Debe ingresar el nombre del archivo\n");
-	else
-		fname = argv[1];
+    size_t size = static_cast<size_t>(rows) * cols;
+    size_t bytes = size * sizeof(int);
 
-	int length = get_text_length(fname);
+    nvtxRangePushA("Init in");
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            h_in[i * cols + j] = i * cols + j;
+        }
+    }
+    nvtxRangePop();
 
-	size = length * sizeof(int);
+    int *d_in = nullptr, *d_out = nullptr;
 
-	// reservar memoria para el mensaje
-	h_message = (int *)malloc(size);
+    nvtxRangePushA("Malloc in");
+    cudaError_t err_in = cudaMalloc(&d_in,  bytes);
+    if (err_in != cudaSuccess) {
+        std::cerr << "[ERROR] cudaMalloc for d_in failed: " << cudaGetErrorString(err_in) << std::endl;
+        return 1;
+    }
+    nvtxRangePop();
+    
+    nvtxRangePushA("Malloc out");
+    cudaError_t err_out = cudaMalloc(&d_out, bytes);
+    if (err_out != cudaSuccess) {
+        std::cerr << "[ERROR] cudaMalloc for d_out failed: " << cudaGetErrorString(err_out) << std::endl;
+        cudaFree(d_in);
+        return 1;
+    }
+    nvtxRangePop();
 
-	// leo el archivo de la entrada
-	read_file(fname, h_message);
+    nvtxRangePushA("H2D memcpy");
+        CUDA_CHK(cudaMemcpy(d_in, h_in.data(), bytes, cudaMemcpyHostToDevice));
+    nvtxRangePop();
 
-	// reservo memoria en la GPU
-	CUDA_CHK(cudaMalloc((void**)&d_message, size));
-	CUDA_CHK(cudaMemcpy(d_message, h_message, size, cudaMemcpyHostToDevice));
+    dim3 blockDim(blockX, blockY); 
 
-	// calculo el numero de threads por bloque y el numero de bloques
-	int threadsPerBlock = 256;
+    int remainder_x = cols % blockDim.x;
+    int remainder_y = rows % blockDim.y;
 
-	int residuo = length % threadsPerBlock;
-	int blocks = length / threadsPerBlock + (residuo > 0);
-	
-	// ejecuto el kernel
-	decrypt_kernel<<<blocks, threadsPerBlock>>>(d_message, length);
-	CUDA_CHK(cudaGetLastError());
-	CUDA_CHK(cudaDeviceSynchronize());
+    int numBlocksX = cols / blockDim.x + (remainder_x > 0 ? 1 : 0);
+    int numBlocksY = rows / blockDim.y + (remainder_y > 0 ? 1 : 0);
+    dim3 gridDim(numBlocksX, numBlocksY);
 
-	// copio el mensaje desencriptado de la GPU a la CPU
-	CUDA_CHK(cudaMemcpy(h_message, d_message, size, cudaMemcpyDeviceToHost));
-	CUDA_CHK(cudaFree(d_message));
+    nvtxRangePushA("Kernel launch");
+        transposeNaive<<<gridDim, blockDim>>>(d_in, d_out, rows, cols);
+        CUDA_CHK(cudaGetLastError());
+        CUDA_CHK(cudaDeviceSynchronize());
+    nvtxRangePop();
 
-	// imprimo el mensaje
-	for (int i = 0; i < length; i++) {
-		printf("%c", (char)h_message[i]);
-	}
-	printf("\n");
+    nvtxRangePushA("D2H memcpy");
+        CUDA_CHK(cudaMemcpy(h_out.data(), d_out, bytes, cudaMemcpyDeviceToHost));
+    nvtxRangePop();
 
-	// libero la memoria en la CPU
-	free(h_message);
+    bool ok = true;
+    for (int r = 0; r < rows && ok; ++r) {
+      for (int c = 0; c < cols; ++c) {
+        int expected = r * cols + c;
+        if (h_out[c * rows + r] != expected) {
+            ok = false;
+            break;
+        }
+      }
+    }
+    std::cout << (ok ? "Transpose OK\n" : "Transpose not OK\n");
 
-	return 0;
-}
-
-	
-int get_text_length(const char * fname)
-{
-	FILE *f = NULL;
-	f = fopen(fname, "r"); //read and binary flag
-
-	size_t pos = ftell(f);    
-	fseek(f, 0, SEEK_END);    
-	size_t length = ftell(f); 
-	fseek(f, pos, SEEK_SET);  
-
-	fclose(f);
-
-	return length;
-}
-
-void read_file(const char * fname, int* input)
-{
-	// printf("leyendo archivo %s\n", fname );
-
-	FILE *f = NULL;
-	f = fopen(fname, "r"); //read and binary flags
-	if (f == NULL){
-		fprintf(stderr, "Error: Could not find %s file \n", fname);
-		exit(1);
-	}
-
-	int c; 
-	while ((c = getc(f)) != EOF) {
-		*(input++) = c;
-	}
-
-	fclose(f);
+    CUDA_CHK(cudaFree(d_in));
+    CUDA_CHK(cudaFree(d_out));
+    return ok ? 0 : 2;
 }

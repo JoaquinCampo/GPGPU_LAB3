@@ -1,0 +1,4 @@
+==690756== NVPROF is profiling process 690756, command: ./ej2_part1 1024 1024 32 32
+==690756== Profiling application: ./ej2_part1 1024 1024 32 32
+==690756== Profiling result:
+No events/metrics were profiled.
